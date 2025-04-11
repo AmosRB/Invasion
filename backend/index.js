@@ -1,4 +1,4 @@
-// index.js – שרת עם תמיכה ב־GeoJSON, נחיתות מרובות, וחייזרים מתואמים בין כל המשתמשים
+// index.js – משופר: תיקון /api/invasion להחזרת GeoJSON מדויק לפי טיפוס
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
@@ -17,9 +17,46 @@ let invasionData = {
 let aliens = []; // כל החייזרים הפעילים
 let nextAlienId = 1;
 
-// שליפת נתוני GeoJSON
+// שליפת נתוני GeoJSON תקין לפי טיפוס
 app.get('/api/invasion', (req, res) => {
-  res.json(invasionData);
+  const features = [
+    // כל הנחיתות
+    ...invasionData.features.map((f) => {
+      return {
+        type: "Feature",
+        geometry: f.geometry,
+        properties: {
+          ...(f.properties || {}),
+          type: "landing"
+        }
+      };
+    }),
+
+    // כל החייזרים
+    ...aliens.map((a) => {
+      const coords = a.route ? require("polyline").decode(a.route) : [];
+      return {
+        type: "Feature",
+        geometry: coords.length > 1 ? {
+          type: "LineString",
+          coordinates: coords.map(([lat, lng]) => [lng, lat])
+        } : {
+          type: "Point",
+          coordinates: [a.lng || 0, a.lat || 0] // fallback
+        },
+        properties: {
+          id: a.id,
+          landingId: a.landingId,
+          type: "alien"
+        }
+      };
+    })
+  ];
+
+  res.json({
+    type: "FeatureCollection",
+    features
+  });
 });
 
 // עדכון GeoJSON ידני
@@ -39,7 +76,8 @@ app.post('/api/landing', (req, res) => {
     },
     properties: {
       id: invasionData.features.length + 1,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      type: "landing"
     }
   };
   invasionData.features.push(newFeature);
@@ -104,7 +142,9 @@ app.post('/api/aliens', async (req, res) => {
           id,
           landingId,
           route,
-          positionIdx: 0
+          positionIdx: 0,
+          lat,
+          lng
         };
       })
     );
@@ -121,8 +161,6 @@ app.post('/api/aliens', async (req, res) => {
 app.get('/api/aliens', (req, res) => {
   res.json(aliens);
 });
-
-// עדכון מיקום חייזרים (בהמשך – אם נרצה להזיז אותם אוטומטית מהשרת)
 
 app.listen(PORT, () => {
   console.log(`🛰️ Server running on port ${PORT}`);
