@@ -4,8 +4,11 @@ import axios from 'axios';
 import polyline from 'polyline';
 import L from 'leaflet';
 
+
 const center = [31.5, 34.8];
 const API_BASE = "https://invasion-api.onrender.com";
+
+
 
 const ClickHandler = ({ setLanding }) => {
   useMapEvents({
@@ -29,6 +32,7 @@ const landingIcon = L.divIcon({
 });
 
 export default function App() {
+  const [loadingAliens, setLoadingAliens] = useState(false);
   const [landing, setLanding] = useState(null);
   const [aliens, setAliens] = useState([]);
 
@@ -43,8 +47,9 @@ export default function App() {
 
   useEffect(() => {
     if (!landing) return;
-
+  
     const createAliens = async () => {
+      setLoadingAliens(true); // ⏳ התחלה
       const directions = [0, 45, 90, 135, 180, 225, 270, 315];
       const alienPromises = directions.map(async (angle) => {
         const rad = angle * (Math.PI / 180);
@@ -58,13 +63,15 @@ export default function App() {
           positionIdx: 0,
         };
       });
-
+  
       const aliensCreated = await Promise.all(alienPromises);
       setAliens(aliensCreated);
+      setLoadingAliens(false); // ✅ סיום
     };
-
+  
     createAliens();
   }, [landing]);
+  
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -138,6 +145,24 @@ export default function App() {
 
   return (
     <MapContainer center={center} zoom={10} style={{ height: '100vh' }}>
+      {loadingAliens && (
+  <div style={{
+    position: 'absolute',
+    top: '20px',
+    left: '50%',
+    transform: 'translateX(-50%)',
+    backgroundColor: 'white',
+    padding: '10px 20px',
+    borderRadius: '10px',
+    boxShadow: '0 0 10px rgba(0,0,0,0.2)',
+    zIndex: 1000,
+    fontWeight: 'bold',
+    fontSize: '1.2rem'
+  }}>
+    🛸 החללית נחתה והחייזרים פורקים ממנה...
+  </div>
+)}
+
       <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
       <ClickHandler setLanding={setLanding} />
       {landing && <Marker position={landing} icon={landingIcon} />}
