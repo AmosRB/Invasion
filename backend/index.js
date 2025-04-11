@@ -1,4 +1,4 @@
-// index.js – שרת מעודכן עם ID ו-type קבועים לנחיתות ולחייזרים + תצוגת נתונים מלאה לכל המשתמשים
+// index.js – משופר: תיקון /api/invasion להחזרת GeoJSON מדויק לפי טיפוס
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
@@ -16,14 +16,25 @@ let invasionData = {
 
 let aliens = []; // כל החייזרים הפעילים
 let nextAlienId = 1;
-let nextLandingId = 1;
 
-// שליפת נתוני GeoJSON מלא עם נחיתות וחייזרים
+// שליפת נתוני GeoJSON תקין לפי טיפוס
 app.get('/api/invasion', (req, res) => {
-  const allFeatures = [
-    ...invasionData.features,
+  const features = [
+    // כל הנחיתות
+    ...invasionData.features.map((f) => {
+      return {
+        type: "Feature",
+        geometry: f.geometry,
+        properties: {
+          ...(f.properties || {}),
+          type: "landing"
+        }
+      };
+    }),
+
+    // כל החייזרים
     ...aliens.map((a) => {
-      const coords = a.route ? require("@mapbox/polyline").decode(a.route) : [];
+      const coords = a.route ? require("polyline").decode(a.route) : [];
       return {
         type: "Feature",
         geometry: coords.length > 1 ? {
@@ -31,7 +42,7 @@ app.get('/api/invasion', (req, res) => {
           coordinates: coords.map(([lat, lng]) => [lng, lat])
         } : {
           type: "Point",
-          coordinates: [a.lng || 0, a.lat || 0]
+          coordinates: [a.lng || 0, a.lat || 0] // fallback
         },
         properties: {
           id: a.id,
@@ -41,7 +52,11 @@ app.get('/api/invasion', (req, res) => {
       };
     })
   ];
-  res.json({ type: "FeatureCollection", features: allFeatures });
+
+  res.json({
+    type: "FeatureCollection",
+    features
+  });
 });
 
 // עדכון GeoJSON ידני
@@ -50,7 +65,7 @@ app.post('/api/update-invasion', (req, res) => {
   res.json({ message: "Updated successfully" });
 });
 
-// יצירת נחיתה חדשה עם ID ו-type
+// יצירת נחיתה חדשה
 app.post('/api/landing', (req, res) => {
   const { lat, lng } = req.body;
   const newFeature = {
@@ -60,7 +75,7 @@ app.post('/api/landing', (req, res) => {
       coordinates: [lng, lat]
     },
     properties: {
-      id: nextLandingId++,
+      id: invasionData.features.length + 1,
       createdAt: new Date().toISOString(),
       type: "landing"
     }
@@ -83,15 +98,15 @@ app.delete('/api/landing/:id', (req, res) => {
 
 // שליפת רשימת נחיתות פשוטה
 app.get('/api/landings', (req, res) => {
-  const landings = invasionData.features.filter(f => f.properties?.type === "landing").map((f) => ({
-    id: f.properties?.id,
+  const landings = invasionData.features.map((f, i) => ({
+    id: f.properties?.id || i + 1,
     lat: f.geometry.coordinates[1],
-    lng: f.geometry.coordinates[0]
+    lng: f.geometry.coordinates[0],
   }));
   res.json(landings);
 });
 
-// יצירת מסלול בין שתי נקודות
+// יצירת מסלול בין שתי נקודות (משותף לשתי גרסאות)
 app.get('/api/route', async (req, res) => {
   const { fromLat, fromLng, toLat, toLng } = req.query;
   try {
@@ -105,7 +120,7 @@ app.get('/api/route', async (req, res) => {
   }
 });
 
-// יצירת 8 חייזרים עם ID ו-type
+// יצירת 8 חייזרים לכל נחיתה
 app.post('/api/aliens', async (req, res) => {
   const { landingId, lat, lng } = req.body;
   const directions = [0, 45, 90, 135, 180, 225, 270, 315];
