@@ -1,4 +1,4 @@
-// App.js
+// App.js – rewritten to await server-confirmed landings
 import React, { useEffect, useState } from 'react';
 import Navbar from './Navbar';
 import MapView from './components/MapView';
@@ -9,7 +9,6 @@ import polyline from 'polyline';
 export default function App() {
   const [landings, setLandings] = useState([]);
   const [aliens, setAliens] = useState([]);
-  const [localLandingIds, setLocalLandingIds] = useState([]);
   const [placingLanding, setPlacingLanding] = useState(false);
   const [deleteMode, setDeleteMode] = useState(false);
   const [log, setLog] = useState([]);
@@ -42,13 +41,7 @@ export default function App() {
 
   const refreshData = async () => {
     const [landingsRes, aliensRes] = await Promise.all([getLandings(), getAliens()]);
-
-    const localOnly = localLandingIds
-      .filter(id => !landingsRes.some(l => l.id === id))
-      .map(id => ({ id, lat: 0, lng: 0 }));
-
-    const mergedLandings = [...landingsRes, ...localOnly];
-    setLandings(mergedLandings);
+    setLandings(landingsRes);
 
     const decoded = aliensRes.map((a) => ({
       ...a,
@@ -58,6 +51,17 @@ export default function App() {
       const localAliens = prev.filter((a) => a.local);
       return [...decoded, ...localAliens];
     });
+  };
+
+  const waitUntilLandingAppears = async (id, timeout = 5000) => {
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+      const landings = await getLandings();
+      const exists = landings.find((l) => l.id === id);
+      if (exists) return exists;
+      await new Promise((res) => setTimeout(res, 500));
+    }
+    throw new Error("Timeout waiting for landing");
   };
 
   const generateNewRouteForAlien = async (alien) => {
@@ -78,45 +82,43 @@ export default function App() {
   const handleMapClick = async (e) => {
     if (placingLanding) {
       const res = await postLanding(e.latlng.lat, e.latlng.lng);
-      const newLanding = {
-        id: res.id,
-        lat: res.lat,
-        lng: res.lng,
-      };
-      setLocalLandingIds((prev) => [...prev, newLanding.id]);
-      setLandings((prev) => [...prev, newLanding]);
-      logEvent(`🛸 נחיתה ${newLanding.id} נוצרה`, setLog);
+      try {
+        const confirmed = await waitUntilLandingAppears(res.id);
+        logEvent(`🛸 נחיתה ${confirmed.id} נוצרה`, setLog);
 
-      const directions = [0, 45, 90, 135, 180, 225, 270, 315];
-      const nextAlienId = aliens.length ? Math.max(...aliens.map((a) => a.id)) + 1 : 1;
+        const directions = [0, 45, 90, 135, 180, 225, 270, 315];
+        const nextAlienId = aliens.length ? Math.max(...aliens.map((a) => a.id)) + 1 : 1;
 
-      const routes = await Promise.all(
-        directions.map(async (angle) => {
-          const rad = angle * (Math.PI / 180);
-          const to = [
-            newLanding.lat + 0.05 * Math.cos(rad),
-            newLanding.lng + 0.05 * Math.sin(rad),
-          ];
-          const r = await getRoute([newLanding.lat, newLanding.lng], to);
-          return polyline.decode(r.geometry);
-        })
-      );
+        const routes = await Promise.all(
+          directions.map(async (angle) => {
+            const rad = angle * (Math.PI / 180);
+            const to = [
+              confirmed.lat + 0.05 * Math.cos(rad),
+              confirmed.lng + 0.05 * Math.sin(rad),
+            ];
+            const r = await getRoute([confirmed.lat, confirmed.lng], to);
+            return polyline.decode(r.geometry);
+          })
+        );
 
-      const localAliens = routes.map((route, i) => ({
-        id: nextAlienId + i,
-        landingId: newLanding.id,
-        decodedRoute: route,
-        route: polyline.encode(route),
-        positionIdx: 0,
-        local: true,
-      }));
+        const localAliens = routes.map((route, i) => ({
+          id: nextAlienId + i,
+          landingId: confirmed.id,
+          decodedRoute: route,
+          route: polyline.encode(route),
+          positionIdx: 0,
+          local: true,
+        }));
 
-      setAliens((prev) => [...prev, ...localAliens]);
+        setAliens((prev) => [...prev, ...localAliens]);
+        logEvent(`👽 ${localAliens.length} חייזרים שוגרו`, setLog);
+      } catch (err) {
+        logEvent(`❌ נחיתה נכשלה: ${res.id}`, setLog);
+      }
+
       setPlacingLanding(false);
-      logEvent(`👽 ${localAliens.length} חייזרים שוגרו`, setLog);
       document.body.style.cursor = 'default';
-
-      setTimeout(() => refreshData(), 1500);
+      refreshData();
     } else if (deleteMode) {
       const clicked = landings.find((l) => {
         const distance = Math.hypot(l.lat - e.latlng.lat, l.lng - e.latlng.lng);
@@ -124,18 +126,10 @@ export default function App() {
       });
       if (!clicked) return;
 
-      if (localLandingIds.includes(clicked.id)) {
-        setLandings((prev) => prev.filter((l) => l.id !== clicked.id));
-        setAliens((prev) => prev.filter((a) => a.landingId !== clicked.id));
-        setLocalLandingIds((prev) => prev.filter((id) => id !== clicked.id));
-        logEvent(`🗑️ נמחקה נחיתה ${clicked.id} מקומית`, setLog);
-      } else {
-        await deleteLanding(clicked.id);
-        setLandings((prev) => prev.filter((l) => l.id !== clicked.id));
-        setAliens((prev) => prev.filter((a) => a.landingId !== clicked.id));
-        setLocalLandingIds((prev) => prev.filter((id) => id !== clicked.id));
-        logEvent(`🗑️ נמחקה נחיתה ${clicked.id} מהשרת`, setLog);
-      }
+      await deleteLanding(clicked.id);
+      setLandings((prev) => prev.filter((l) => l.id !== clicked.id));
+      setAliens((prev) => prev.filter((a) => a.landingId !== clicked.id));
+      logEvent(`🗑️ נמחקה נחיתה ${clicked.id}`, setLog);
 
       setDeleteMode(false);
       document.body.classList.remove('delete-mode');
@@ -145,17 +139,14 @@ export default function App() {
 
   const handleDeleteAll = async () => {
     const ids = landings.map((l) => l.id);
-
     try {
       await Promise.all(ids.map((id) => deleteLanding(id)));
       ids.forEach((id) => logEvent(`🧨 נמחקה נחיתה ${id}`, setLog));
     } catch (err) {
       console.error("שגיאה במחיקת נחיתות", err);
     }
-
     setLandings([]);
     setAliens((prev) => prev.filter((a) => !ids.includes(a.landingId)));
-    setLocalLandingIds((prev) => prev.filter((id) => !ids.includes(id)));
   };
 
   return (
