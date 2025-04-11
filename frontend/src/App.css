@@ -1,0 +1,32 @@
+
+body {
+  margin: 0;
+  font-family: 'Arial', sans-serif;
+}
+.custom-icon {
+  text-align: center;
+  line-height: 1;
+  user-select: none;
+}
+body.create-mode {
+  cursor: copy;
+}
+body.delete-local-mode {
+  cursor: not-allowed;
+}
+body.delete-remote-mode {
+  cursor: crosshair;
+}
+button {
+  margin: 0 6px;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 4px;
+  background-color: #444;
+  color: #fff;
+  cursor: pointer;
+  font-size: 14px;
+}
+button:hover {
+  background-color: #666;
+}

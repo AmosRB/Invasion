@@ -1,180 +1,186 @@
-import React, { useState, useEffect } from 'react';
-import { MapContainer, TileLayer, Marker, Polyline, useMapEvents } from 'react-leaflet';
-import axios from 'axios';
+// App.js
+import React, { useEffect, useState } from 'react';
+import Navbar from './Navbar';
+import MapView from './components/MapView';
+import { getLandings, getAliens, postLanding, deleteLanding, getRoute } from './utils/api';
+import { logEvent } from './utils/logger';
 import polyline from 'polyline';
-import L from 'leaflet';
-
-
-const center = [31.5, 34.8];
-const API_BASE = "https://invasion-api.onrender.com";
-
-
-
-const ClickHandler = ({ setLanding }) => {
-  useMapEvents({
-    click(e) {
-      setLanding(e.latlng);
-    },
-  });
-  return null;
-};
-
-const alienIcon = (number) => L.divIcon({
-  html: `<div style="font-size:24px;">👽<span style="color:black; font-weight:bold; font-size:14px;">${number}</span></div>`,
-  className: 'alien-icon',
-  iconSize: [30, 30],
-});
-
-const landingIcon = L.divIcon({
-  html: '<div style="font-size:28px;">🛸</div>',
-  className: 'landing-icon',
-  iconSize: [30, 30],
-});
 
 export default function App() {
-  const [loadingAliens, setLoadingAliens] = useState(false);
-  const [landing, setLanding] = useState(null);
+  const [landings, setLandings] = useState([]);
   const [aliens, setAliens] = useState([]);
+  const [localLandingIds, setLocalLandingIds] = useState([]);
+  const [placingLanding, setPlacingLanding] = useState(false);
+  const [deleteMode, setDeleteMode] = useState(false);
+  const [log, setLog] = useState([]);
+  const [showLog, setShowLog] = useState(false);
 
-  const getRoute = async (from, to) => {
-    const res = await axios.get(
-      `${API_BASE}/api/route?fromLat=${from[0]}&fromLng=${from[1]}&toLat=${to[0]}&toLng=${to[1]}`
-    );
-    return polyline
-      .decode(res.data.routes[0].geometry)
-      .map(coord => [coord[0], coord[1]]);
+  useEffect(() => {
+    refreshData();
+    const interval = setInterval(refreshData, 2000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setAliens((prev) =>
+        prev.map((a) => {
+          const next = a.positionIdx + 1;
+          if (next < a.decodedRoute.length) {
+            return { ...a, positionIdx: next };
+          } else if (a.local) {
+            generateNewRouteForAlien(a);
+            return { ...a, positionIdx: 0 };
+          } else {
+            return { ...a, positionIdx: a.decodedRoute.length - 1 };
+          }
+        })
+      );
+    }, 1500);
+    return () => clearInterval(interval);
+  }, []);
+
+  const refreshData = async () => {
+    const [landingsRes, aliensRes] = await Promise.all([getLandings(), getAliens()]);
+
+    const localOnly = localLandingIds
+      .filter(id => !landingsRes.some(l => l.id === id))
+      .map(id => ({ id, lat: 0, lng: 0 }));
+
+    const mergedLandings = [...landingsRes, ...localOnly];
+    setLandings(mergedLandings);
+
+    const decoded = aliensRes.map((a) => ({
+      ...a,
+      decodedRoute: polyline.decode(a.route || ''),
+    }));
+    setAliens((prev) => {
+      const localAliens = prev.filter((a) => a.local);
+      return [...decoded, ...localAliens];
+    });
   };
 
-  useEffect(() => {
-    if (!landing) return;
-  
-    const createAliens = async () => {
-      setLoadingAliens(true); // ⏳ התחלה
+  const generateNewRouteForAlien = async (alien) => {
+    const lastPos = alien.decodedRoute[alien.decodedRoute.length - 1];
+    const angle = Math.random() * 360;
+    const rad = angle * (Math.PI / 180);
+    const to = [lastPos[0] + 0.05 * Math.cos(rad), lastPos[1] + 0.05 * Math.sin(rad)];
+    try {
+      const route = await getRoute(lastPos, to);
+      const decoded = polyline.decode(route.geometry);
+      alien.decodedRoute = decoded;
+      alien.route = polyline.encode(decoded);
+    } catch (e) {
+      console.error("OSRM route error:", e.message);
+    }
+  };
+
+  const handleMapClick = async (e) => {
+    if (placingLanding) {
+      const res = await postLanding(e.latlng.lat, e.latlng.lng);
+      const newLanding = {
+        id: res.id,
+        lat: res.lat,
+        lng: res.lng,
+      };
+      setLocalLandingIds((prev) => [...prev, newLanding.id]);
+      setLandings((prev) => [...prev, newLanding]);
+      logEvent(`🛸 נחיתה ${newLanding.id} נוצרה`, setLog);
+
       const directions = [0, 45, 90, 135, 180, 225, 270, 315];
-      const alienPromises = directions.map(async (angle) => {
-        const rad = angle * (Math.PI / 180);
-        const target = [
-          landing.lat + 0.05 * Math.cos(rad),
-          landing.lng + 0.05 * Math.sin(rad),
-        ];
-        const route = await getRoute([landing.lat, landing.lng], target);
-        return {
-          route,
-          positionIdx: 0,
-        };
+      const nextAlienId = aliens.length ? Math.max(...aliens.map((a) => a.id)) + 1 : 1;
+
+      const routes = await Promise.all(
+        directions.map(async (angle) => {
+          const rad = angle * (Math.PI / 180);
+          const to = [
+            newLanding.lat + 0.05 * Math.cos(rad),
+            newLanding.lng + 0.05 * Math.sin(rad),
+          ];
+          const r = await getRoute([newLanding.lat, newLanding.lng], to);
+          return polyline.decode(r.geometry);
+        })
+      );
+
+      const localAliens = routes.map((route, i) => ({
+        id: nextAlienId + i,
+        landingId: newLanding.id,
+        decodedRoute: route,
+        route: polyline.encode(route),
+        positionIdx: 0,
+        local: true,
+      }));
+
+      setAliens((prev) => [...prev, ...localAliens]);
+      setPlacingLanding(false);
+      logEvent(`👽 ${localAliens.length} חייזרים שוגרו`, setLog);
+      document.body.style.cursor = 'default';
+
+      setTimeout(() => refreshData(), 1500);
+    } else if (deleteMode) {
+      const clicked = landings.find((l) => {
+        const distance = Math.hypot(l.lat - e.latlng.lat, l.lng - e.latlng.lng);
+        return distance < 0.001;
       });
-  
-      const aliensCreated = await Promise.all(alienPromises);
-      setAliens(aliensCreated);
-      setLoadingAliens(false); // ✅ סיום
-    };
-  
-    createAliens();
-  }, [landing]);
-  
+      if (!clicked) return;
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const updateAliens = async () => {
-        const updated = await Promise.all(
-          aliens.map(async (alien, idx) => {
-            let newIdx = alien.positionIdx + 1;
-  
-            if (newIdx >= alien.route.length) {
-              const currentPos = alien.route[alien.route.length - 1];
-              let newRoute = await getRoute(currentPos, [
-                currentPos[0] + (Math.random() - 0.5) / 10,
-                currentPos[1] + (Math.random() - 0.5) / 10,
-              ]);
-  
-              if (!newRoute || newRoute.length < 2) {
-                newRoute = alien.route.slice().reverse();
-              }
-  
-              return { route: newRoute, positionIdx: 0 };
-            }
-  
-            return { ...alien, positionIdx: newIdx };
-          })
-        );
-  
-        setAliens(updated);
-      };
-  
-      updateAliens();
-    }, 1000);
-  
-    return () => clearInterval(interval);
-  }, [aliens]);
-  
+      if (localLandingIds.includes(clicked.id)) {
+        setLandings((prev) => prev.filter((l) => l.id !== clicked.id));
+        setAliens((prev) => prev.filter((a) => a.landingId !== clicked.id));
+        setLocalLandingIds((prev) => prev.filter((id) => id !== clicked.id));
+        logEvent(`🗑️ נמחקה נחיתה ${clicked.id} מקומית`, setLog);
+      } else {
+        await deleteLanding(clicked.id);
+        setLandings((prev) => prev.filter((l) => l.id !== clicked.id));
+        setAliens((prev) => prev.filter((a) => a.landingId !== clicked.id));
+        setLocalLandingIds((prev) => prev.filter((id) => id !== clicked.id));
+        logEvent(`🗑️ נמחקה נחיתה ${clicked.id} מהשרת`, setLog);
+      }
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (!landing || aliens.length === 0) return;
+      setDeleteMode(false);
+      document.body.classList.remove('delete-mode');
+      document.body.style.cursor = 'default';
+    }
+  };
 
-      const geoJSON = {
-        type: "FeatureCollection",
-        features: [
-          {
-            type: "Feature",
-            geometry: {
-              type: "Point",
-              coordinates: [landing.lng, landing.lat],
-            },
-            properties: { type: "landing" },
-          },
-          ...aliens.map((alien, idx) => ({
-            type: "Feature",
-            geometry: {
-              type: "Point",
-              coordinates: [
-                alien.route[alien.positionIdx][1],
-                alien.route[alien.positionIdx][0],
-              ],
-            },
-            properties: { type: "alien", id: idx + 1 },
-          })),
-        ],
-      };
+  const handleDeleteAll = async () => {
+    const ids = landings.map((l) => l.id);
 
-      axios.post(`${API_BASE}/api/update-invasion`, geoJSON);
-    }, 1000);
+    try {
+      await Promise.all(ids.map((id) => deleteLanding(id)));
+      ids.forEach((id) => logEvent(`🧨 נמחקה נחיתה ${id}`, setLog));
+    } catch (err) {
+      console.error("שגיאה במחיקת נחיתות", err);
+    }
 
-    return () => clearInterval(interval);
-  }, [landing, aliens]);
+    setLandings([]);
+    setAliens((prev) => prev.filter((a) => !ids.includes(a.landingId)));
+    setLocalLandingIds((prev) => prev.filter((id) => !ids.includes(id)));
+  };
 
   return (
-    <MapContainer center={center} zoom={10} style={{ height: '100vh' }}>
-      {loadingAliens && (
-  <div style={{
-    position: 'absolute',
-    top: '20px',
-    left: '50%',
-    transform: 'translateX(-50%)',
-    backgroundColor: 'white',
-    padding: '10px 20px',
-    borderRadius: '10px',
-    boxShadow: '0 0 10px rgba(0,0,0,0.2)',
-    zIndex: 1000,
-    fontWeight: 'bold',
-    fontSize: '1.2rem'
-  }}>
-    🛸 החללית נחתה והחייזרים פורקים ממנה...
-  </div>
-)}
-
-      <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-      <ClickHandler setLanding={setLanding} />
-      {landing && <Marker position={landing} icon={landingIcon} />}
-      {aliens.map((alien, idx) => (
-        <React.Fragment key={idx}>
-          <Polyline positions={alien.route} color="purple" dashArray="3" />
-          <Marker
-            position={alien.route[alien.positionIdx]}
-            icon={alienIcon(idx + 1)}
-          />
-        </React.Fragment>
-      ))}
-    </MapContainer>
+    <div>
+      <Navbar
+        landingCount={landings.length}
+        alienCount={aliens.length}
+        onStart={() => {
+          setPlacingLanding(true);
+          setDeleteMode(false);
+          document.body.style.cursor = 'copy';
+          logEvent("🛸 מצב יצירת נחיתה הופעל", setLog);
+        }}
+        onDelete={() => {
+          setDeleteMode(true);
+          setPlacingLanding(false);
+          document.body.classList.add('delete-mode');
+          logEvent("🗑️ מצב מחיקה הופעל", setLog);
+        }}
+        log={log}
+        showLog={showLog}
+        toggleLog={() => setShowLog(!showLog)}
+      />
+      <button onClick={handleDeleteAll} style={{ position: 'absolute', top: 10, right: 10, zIndex: 9999 }}>🧨 מחק הכל</button>
+      <MapView landings={landings} aliens={aliens} onMapClick={handleMapClick} />
+    </div>
   );
 }
