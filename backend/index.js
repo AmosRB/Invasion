@@ -1,4 +1,4 @@
-// index.js – full alien sync support
+// index.js – includes /api/invasion returning full GeoJSON
 const express = require("express");
 const cors = require("cors");
 const app = express();
@@ -54,7 +54,6 @@ app.post("/aliens", (req, res) => {
   }
 
   newAliens.forEach((alien) => {
-    // avoid duplicates by ID
     if (!aliens.find(a => a.id === alien.id)) {
       aliens.push(alien);
     }
@@ -62,6 +61,47 @@ app.post("/aliens", (req, res) => {
 
   console.log(`Received ${newAliens.length} aliens`);
   res.status(201).json({ success: true });
+});
+
+// ✅ New: Unified GeoJSON endpoint
+app.get("/api/invasion", (req, res) => {
+  const landingFeatures = landings.map((l) => ({
+    type: "Feature",
+    geometry: {
+      type: "Point",
+      coordinates: [l.lng, l.lat],
+    },
+    properties: {
+      id: l.id,
+      createdAt: new Date(l.timestamp).toISOString(),
+      type: "landing"
+    }
+  }));
+
+  const alienFeatures = aliens.map((a) => {
+    try {
+      const coords = a.route ? require("polyline").decode(a.route) : [];
+      return {
+        type: "Feature",
+        geometry: {
+          type: "LineString",
+          coordinates: coords.map(([lat, lng]) => [lng, lat]),
+        },
+        properties: {
+          id: a.id,
+          landingId: a.landingId,
+          type: "alien"
+        }
+      };
+    } catch {
+      return null;
+    }
+  }).filter(f => f);
+
+  res.json({
+    type: "FeatureCollection",
+    features: [...landingFeatures, ...alienFeatures]
+  });
 });
 
 app.listen(PORT, () => {
