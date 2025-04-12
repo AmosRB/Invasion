@@ -1,9 +1,8 @@
-// index.js – שרת עם תמיכה ב־GeoJSON, נחיתות מרובות, וחייזרים מתואמים בין כל המשתמשים
+
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
 const app = express();
-
 const PORT = process.env.PORT || 5000;
 
 app.use(cors());
@@ -14,23 +13,37 @@ let invasionData = {
   features: []
 };
 
-let aliens = []; // כל החייזרים הפעילים
+let aliens = [];
+let nextLandingId = 1000;
 let nextAlienId = 1;
 
-// שליפת נתוני GeoJSON
+// ✅ שליפת GeoJSON מלא כולל חייזרים
 app.get('/api/invasion', (req, res) => {
-  res.json(invasionData);
+  const allFeatures = [...invasionData.features];
+
+  const alienFeatures = aliens.map((alien) => ({
+    type: "Feature",
+    geometry: {
+      type: "Point",
+      coordinates: decodePolyline(alien.route)[0] || [0, 0]
+    },
+    properties: {
+      type: "alien",
+      id: alien.id,
+      landingId: alien.landingId
+    }
+  }));
+
+  res.json({
+    type: "FeatureCollection",
+    features: [...allFeatures, ...alienFeatures]
+  });
 });
 
-// עדכון GeoJSON ידני
-app.post('/api/update-invasion', (req, res) => {
-  invasionData = req.body;
-  res.json({ message: "Updated successfully" });
-});
-
-// יצירת נחיתה חדשה
+// ✅ יצירת נחיתה עם ID ייחודי
 app.post('/api/landing', (req, res) => {
   const { lat, lng } = req.body;
+  const id = nextLandingId++;
   const newFeature = {
     type: "Feature",
     geometry: {
@@ -38,51 +51,18 @@ app.post('/api/landing', (req, res) => {
       coordinates: [lng, lat]
     },
     properties: {
-      id: invasionData.features.length + 1,
-      createdAt: new Date().toISOString()
+      id,
+      createdAt: new Date().toISOString(),
+      type: "landing",
+      lat,
+      lng
     }
   };
   invasionData.features.push(newFeature);
-  res.status(201).json({
-    id: newFeature.properties.id,
-    lat,
-    lng
-  });
+  res.status(201).json({ id, lat, lng });
 });
 
-// מחיקת נחיתה לפי ID
-app.delete('/api/landing/:id', (req, res) => {
-  const id = parseInt(req.params.id);
-  invasionData.features = invasionData.features.filter(f => (f.properties?.id || 0) !== id);
-  aliens = aliens.filter(a => a.landingId !== id);
-  res.json({ message: `Landing ${id} and its aliens deleted.` });
-});
-
-// שליפת רשימת נחיתות פשוטה
-app.get('/api/landings', (req, res) => {
-  const landings = invasionData.features.map((f, i) => ({
-    id: f.properties?.id || i + 1,
-    lat: f.geometry.coordinates[1],
-    lng: f.geometry.coordinates[0],
-  }));
-  res.json(landings);
-});
-
-// יצירת מסלול בין שתי נקודות (משותף לשתי גרסאות)
-app.get('/api/route', async (req, res) => {
-  const { fromLat, fromLng, toLat, toLng } = req.query;
-  try {
-    const response = await axios.get(
-      `https://router.project-osrm.org/route/v1/driving/${fromLng},${fromLat};${toLng},${toLat}?overview=full&geometries=polyline`
-    );
-    res.json(response.data);
-  } catch (error) {
-    console.error("OSRM Error:", error.message);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// יצירת 8 חייזרים לכל נחיתה
+// ✅ יצירת 8 חייזרים לכל נחיתה
 app.post('/api/aliens', async (req, res) => {
   const { landingId, lat, lng } = req.body;
   const directions = [0, 45, 90, 135, 180, 225, 270, 315];
@@ -99,30 +79,80 @@ app.post('/api/aliens', async (req, res) => {
           `https://router.project-osrm.org/route/v1/driving/${lng},${lat};${to[1]},${to[0]}?overview=full&geometries=polyline`
         );
         const route = routeRes.data.routes[0].geometry;
-        const id = nextAlienId++;
         return {
-          id,
+          id: nextAlienId++,
           landingId,
           route,
           positionIdx: 0
         };
       })
     );
-
     aliens.push(...createdAliens);
     res.status(201).json(createdAliens);
   } catch (err) {
-    console.error("Alien route error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
-// שליפת כל החייזרים
+// ✅ מחיקת נחיתה + החייזרים שלה
+app.delete('/api/landing/:id', (req, res) => {
+  const id = parseInt(req.params.id);
+  invasionData.features = invasionData.features.filter(f => f.properties?.id !== id);
+  aliens = aliens.filter(a => a.landingId !== id);
+  res.json({ message: `Landing ${id} and its aliens deleted.` });
+});
+
+// ✅ שליפת כל החייזרים בלבד
 app.get('/api/aliens', (req, res) => {
   res.json(aliens);
 });
 
-// עדכון מיקום חייזרים (בהמשך – אם נרצה להזיז אותם אוטומטית מהשרת)
+// ✅ שליפת כל הנחיתות בלבד
+app.get('/api/landings', (req, res) => {
+  const landings = invasionData.features.filter(f => f.properties?.type === "landing");
+  res.json(landings);
+});
+
+// ✅ מסלול בין נקודות
+app.get('/api/route', async (req, res) => {
+  const { fromLat, fromLng, toLat, toLng } = req.query;
+  try {
+    const response = await axios.get(
+      `https://router.project-osrm.org/route/v1/driving/${fromLng},${fromLat};${toLng},${toLat}?overview=full&geometries=polyline`
+    );
+    res.json(response.data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ✅ פונקציית פענוח polyline של OSRM
+function decodePolyline(encoded) {
+  let points = [], index = 0, lat = 0, lng = 0;
+  while (index < encoded.length) {
+    let b, shift = 0, result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    const dlat = (result & 1) ? ~(result >> 1) : (result >> 1);
+    lat += dlat;
+
+    shift = 0;
+    result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    const dlng = (result & 1) ? ~(result >> 1) : (result >> 1);
+    lng += dlng;
+
+    points.push([lng / 1e5, lat / 1e5]);
+  }
+  return points;
+}
 
 app.listen(PORT, () => {
   console.log(`🛰️ Server running on port ${PORT}`);
