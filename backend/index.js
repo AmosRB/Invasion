@@ -8,32 +8,13 @@ app.use(cors());
 app.use(express.json());
 
 let invasionData = { type: "FeatureCollection", features: [] };
-let aliens = [];
 let nextLandingId = 1000;
 let nextAlienId = 1;
 
-// GET all data (landings + aliens)
 app.get('/api/invasion', (req, res) => {
-  const allFeatures = [...invasionData.features];
-  const alienFeatures = aliens.map(alien => ({
-    type: "Feature",
-    geometry: {
-      type: "Point",
-      coordinates: decodePolyline(alien.route)[0] || [0, 0]
-    },
-    properties: {
-      type: "alien",
-      id: alien.id,
-      landingId: alien.landingId
-    }
-  }));
-  res.json({
-    type: "FeatureCollection",
-    features: [...allFeatures, ...alienFeatures]
-  });
+  res.json(invasionData);
 });
 
-// GET simplified list of landings
 app.get('/api/landings', (req, res) => {
   const landings = invasionData.features
     .filter(f => f.properties?.type === 'landing')
@@ -45,40 +26,45 @@ app.get('/api/landings', (req, res) => {
   res.json(landings);
 });
 
-// GET all aliens
 app.get('/api/aliens', (req, res) => {
+  const aliens = invasionData.features
+    .filter(f => f.properties?.type === 'alien')
+    .map(f => ({
+      id: f.properties.id,
+      landingId: f.properties.landingId,
+      lat: f.geometry.coordinates[1],
+      lng: f.geometry.coordinates[0]
+    }));
   res.json(aliens);
 });
 
-// POST new landing
 app.post('/api/landing', (req, res) => {
   const { lat, lng } = req.body;
   const id = nextLandingId++;
-  const newFeature = {
+  const newLanding = {
     type: "Feature",
-    geometry: {
-      type: "Point",
-      coordinates: [lng, lat]
-    },
+    geometry: { type: "Point", coordinates: [lng, lat] },
     properties: {
       id,
       createdAt: new Date().toISOString(),
       type: "landing"
     }
   };
-  invasionData.features.push(newFeature);
+  invasionData.features.push(newLanding);
   res.status(201).json({ id, lat, lng });
 });
 
-// DELETE landing and related aliens
 app.delete('/api/landing/:id', (req, res) => {
   const id = parseInt(req.params.id);
-  invasionData.features = invasionData.features.filter(f => f.properties?.id !== id);
-  aliens = aliens.filter(a => a.landingId !== id);
+  invasionData.features = invasionData.features.filter(f => {
+    const pid = f.properties?.id;
+    const type = f.properties?.type;
+    const lid = f.properties?.landingId;
+    return !(type === 'landing' && pid === id) && !(type === 'alien' && lid === id);
+  });
   res.json({ message: `Landing ${id} and its aliens deleted.` });
 });
 
-// POST create 8 aliens per landing
 app.post('/api/aliens', async (req, res) => {
   const { landingId, lat, lng } = req.body;
   const directions = [0, 45, 90, 135, 180, 225, 270, 315];
@@ -94,22 +80,33 @@ app.post('/api/aliens', async (req, res) => {
         const routeRes = await axios.get(
           `https://router.project-osrm.org/route/v1/driving/${lng},${lat};${to[1]},${to[0]}?overview=full&geometries=polyline`
         );
-        return {
-          id: nextAlienId++,
-          landingId,
-          route: routeRes.data.routes[0].geometry,
-          positionIdx: 0
+        const route = routeRes.data.routes[0].geometry;
+        const decoded = decodePolyline(route)[0] || [lng, lat];
+
+        const alienFeature = {
+          type: "Feature",
+          geometry: {
+            type: "Point",
+            coordinates: decoded
+          },
+          properties: {
+            id: nextAlienId++,
+            landingId,
+            type: "alien"
+          }
         };
+
+        invasionData.features.push(alienFeature);
+        return alienFeature;
       })
     );
-    aliens.push(...createdAliens);
+
     res.status(201).json(createdAliens);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// GET OSRM route between 2 points
 app.get('/api/route', async (req, res) => {
   const { fromLat, fromLng, toLat, toLng } = req.query;
   try {
@@ -122,7 +119,6 @@ app.get('/api/route', async (req, res) => {
   }
 });
 
-// Decode polyline to get alien coordinates
 function decodePolyline(encoded) {
   let points = [], index = 0, lat = 0, lng = 0;
   while (index < encoded.length) {
