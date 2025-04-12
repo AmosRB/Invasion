@@ -20,18 +20,24 @@ let nextAlienId = 1;
 app.get('/api/invasion', (req, res) => {
   const allFeatures = [...invasionData.features];
 
-  const alienFeatures = aliens.map(alien => ({
-    type: "Feature",
-    geometry: {
-      type: "Point",
-      coordinates: decodePolyline(alien.route)[0] || [0, 0]
-    },
-    properties: {
-      type: "alien",
-      id: alien.id,
-      landingId: alien.landingId
-    }
-  }));
+  const alienFeatures = aliens
+    .map(alien => {
+      const decoded = decodePolyline(alien.route || '');
+      if (!decoded || decoded.length === 0) return null;
+      return {
+        type: "Feature",
+        geometry: {
+          type: "Point",
+          coordinates: decoded[0]
+        },
+        properties: {
+          type: "alien",
+          id: alien.id,
+          landingId: alien.landingId
+        }
+      };
+    })
+    .filter(Boolean); // מסיר null
 
   res.json({
     type: "FeatureCollection",
@@ -104,15 +110,9 @@ app.get('/api/aliens', (req, res) => {
   res.json(aliens);
 });
 
-// ✅ שליפת כל הנחיתות בפורמט פשוט עם lat/lng/id
+// ✅ שליפת כל הנחיתות בלבד
 app.get('/api/landings', (req, res) => {
-  const landings = invasionData.features
-    .filter(f => f.properties?.type === "landing")
-    .map(f => ({
-      id: f.properties.id,
-      lat: f.geometry.coordinates[1],
-      lng: f.geometry.coordinates[0],
-    }));
+  const landings = invasionData.features.filter(f => f.properties?.type === "landing");
   res.json(landings);
 });
 
