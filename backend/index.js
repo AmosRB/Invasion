@@ -16,6 +16,7 @@ let aliens = [];
 let nextLandingId = 1000;
 let nextAlienId = 1;
 
+// ✅ שליפת GeoJSON מלא כולל חייזרים
 app.get('/api/invasion', (req, res) => {
   const allFeatures = [...invasionData.features];
 
@@ -38,6 +39,7 @@ app.get('/api/invasion', (req, res) => {
   });
 });
 
+// ✅ יצירת נחיתה עם ID ייחודי
 app.post('/api/landing', (req, res) => {
   const { lat, lng } = req.body;
   const id = nextLandingId++;
@@ -57,6 +59,7 @@ app.post('/api/landing', (req, res) => {
   res.status(201).json({ id, lat, lng });
 });
 
+// ✅ יצירת 8 חייזרים לכל נחיתה
 app.post('/api/aliens', async (req, res) => {
   const { landingId, lat, lng } = req.body;
   const directions = [0, 45, 90, 135, 180, 225, 270, 315];
@@ -73,16 +76,14 @@ app.post('/api/aliens', async (req, res) => {
           `https://router.project-osrm.org/route/v1/driving/${lng},${lat};${to[1]},${to[0]}?overview=full&geometries=polyline`
         );
         const route = routeRes.data.routes[0].geometry;
-        const id = nextAlienId++;
         return {
-          id,
+          id: nextAlienId++,
           landingId,
           route,
           positionIdx: 0
         };
       })
     );
-
     aliens.push(...createdAliens);
     res.status(201).json(createdAliens);
   } catch (err) {
@@ -90,10 +91,7 @@ app.post('/api/aliens', async (req, res) => {
   }
 });
 
-app.get('/api/aliens', (req, res) => {
-  res.json(aliens);
-});
-
+// ✅ מחיקת נחיתה + החייזרים שלה
 app.delete('/api/landing/:id', (req, res) => {
   const id = parseInt(req.params.id);
   invasionData.features = invasionData.features.filter(f => f.properties?.id !== id);
@@ -101,6 +99,18 @@ app.delete('/api/landing/:id', (req, res) => {
   res.json({ message: `Landing ${id} and its aliens deleted.` });
 });
 
+// ✅ שליפת כל החייזרים בלבד
+app.get('/api/aliens', (req, res) => {
+  res.json(aliens);
+});
+
+// ✅ שליפת כל הנחיתות בלבד
+app.get('/api/landings', (req, res) => {
+  const landings = invasionData.features.filter(f => f.properties?.type === "landing");
+  res.json(landings);
+});
+
+// ✅ מסלול בין נקודות
 app.get('/api/route', async (req, res) => {
   const { fromLat, fromLng, toLat, toLng } = req.query;
   try {
@@ -113,7 +123,7 @@ app.get('/api/route', async (req, res) => {
   }
 });
 
-// פונקציית פענוח פולי ליין של OSRM
+// ✅ פונקציית פענוח polyline של OSRM
 function decodePolyline(encoded) {
   let points = [], index = 0, lat = 0, lng = 0;
   while (index < encoded.length) {
