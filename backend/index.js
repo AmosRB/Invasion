@@ -104,9 +104,15 @@ app.get('/api/aliens', (req, res) => {
   res.json(aliens);
 });
 
-// ✅ שליפת כל הנחיתות בלבד
+// ✅ שליפת כל הנחיתות בפורמט פשוט עם lat/lng/id
 app.get('/api/landings', (req, res) => {
-  const landings = invasionData.features.filter(f => f.properties?.type === "landing");
+  const landings = invasionData.features
+    .filter(f => f.properties?.type === "landing")
+    .map(f => ({
+      id: f.properties.id,
+      lat: f.geometry.coordinates[1],
+      lng: f.geometry.coordinates[0],
+    }));
   res.json(landings);
 });
 
