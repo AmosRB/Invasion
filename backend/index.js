@@ -1,3 +1,4 @@
+
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
@@ -12,7 +13,7 @@ let aliens = [];
 let nextLandingId = 1000;
 let nextAlienId = 1;
 
-// 🧼 ניקוי נתונים שלא עודכנו לאחרונה
+// Clean up every 5 seconds
 setInterval(() => {
   const cutoff = Date.now() - 10000;
   const activeLandingIds = [];
@@ -26,7 +27,6 @@ setInterval(() => {
   aliens = aliens.filter(a => activeLandingIds.includes(a.landingId) && a.lastUpdated > cutoff);
 }, 5000);
 
-// ✅ GET - שליפת כל הפלישות
 app.get('/api/invasion', (req, res) => {
   const landingFeatures = landings.map(landing => ({
     type: "Feature",
@@ -62,7 +62,6 @@ app.get('/api/invasion', (req, res) => {
   });
 });
 
-// ✅ POST חדש - update-invasion כולל הכל
 app.post('/api/update-invasion', (req, res) => {
   const { features } = req.body;
   const newLandings = features.filter(f => f.properties?.type === 'landing');
@@ -110,7 +109,6 @@ app.post('/api/update-invasion', (req, res) => {
   res.json({ message: "✅ invasion data merged and synced" });
 });
 
-// ✅ תמיכה בגרסה ישנה - /api/landing
 app.post('/api/landing', (req, res) => {
   const { lat, lng, locationName } = req.body;
   const newLanding = {
@@ -125,7 +123,6 @@ app.post('/api/landing', (req, res) => {
   res.status(201).json(newLanding);
 });
 
-// ✅ תמיכה בגרסה ישנה - /api/aliens
 app.post('/api/aliens', async (req, res) => {
   const { landingId, lat, lng } = req.body;
   const directions = [0, 45, 90, 135, 180, 225, 270, 315];
@@ -157,7 +154,6 @@ app.post('/api/aliens', async (req, res) => {
   }
 });
 
-// 🔁 פונקציית עזר לפענוח מסלול
 function decodePolyline(encoded) {
   let points = [], index = 0, lat = 0, lng = 0;
   while (index < encoded.length) {
