@@ -12,11 +12,20 @@ let aliens = [];
 let nextLandingId = 1000;
 let nextAlienId = 1;
 
-// 🧼 מנגנון ניקוי כל 5 שניות
+// 🧼 ניקוי כל 5 שניות: מוחק נחיתות ישנות + החייזרים שלהן
 setInterval(() => {
-  const cutoff = Date.now() - 10000; // 10 שניות
-  landings = landings.filter(l => l.lastUpdated && l.lastUpdated > cutoff);
-  aliens = aliens.filter(a => a.lastUpdated && a.lastUpdated > cutoff);
+  const cutoff = Date.now() - 10000;
+  const activeLandingIds = [];
+
+  // שמור את כל הנחיתות הפעילות
+  landings = landings.filter(l => {
+    const isActive = l.lastUpdated && l.lastUpdated > cutoff;
+    if (isActive) activeLandingIds.push(l.id);
+    return isActive;
+  });
+
+  // שמור רק חייזרים ששייכים לנחיתות פעילות
+  aliens = aliens.filter(a => activeLandingIds.includes(a.landingId));
 }, 5000);
 
 app.get('/api/invasion', (req, res) => {
@@ -60,15 +69,16 @@ app.post('/api/update-invasion', (req, res) => {
   const newAliens = features.filter(f => f.properties?.type === 'alien');
 
   const now = Date.now();
-  const landingIdsFromClient = newLandings.map(l => l.properties.id);
-  const alienIdsFromClient = newAliens.map(a => a.properties.id);
 
-  landings = landings.filter(l => landingIdsFromClient.includes(l.id));
-  aliens = aliens.filter(a => alienIdsFromClient.includes(a.id));
-
+  // עדכון נחיתות
   newLandings.forEach(l => {
-    const exists = landings.find(existing => existing.id === l.properties.id);
-    if (!exists) {
+    const existing = landings.find(existing => existing.id === l.properties.id);
+    if (existing) {
+      existing.lat = l.geometry.coordinates[1];
+      existing.lng = l.geometry.coordinates[0];
+      existing.locationName = l.properties.locationName || "Unknown";
+      existing.lastUpdated = now;
+    } else {
       landings.push({
         id: l.properties.id,
         lat: l.geometry.coordinates[1],
@@ -77,29 +87,28 @@ app.post('/api/update-invasion', (req, res) => {
         createdAt: new Date().toISOString(),
         lastUpdated: now
       });
-    } else {
-      exists.lastUpdated = now;
     }
   });
 
+  // עדכון חייזרים
   newAliens.forEach(a => {
-    const exists = aliens.find(existing => existing.id === a.properties.id);
-    if (!exists) {
+    const existing = aliens.find(existing => existing.id === a.properties.id);
+    if (existing) {
+      existing.position = [a.geometry.coordinates[0], a.geometry.coordinates[1]];
+      existing.lastUpdated = now;
+    } else {
       aliens.push({
         id: a.properties.id,
-        landingId: a.properties.landingId || 0,
+        landingId: a.properties.landingId,
         alienGlobalId: a.properties.alienGlobalId || a.properties.id,
         position: [a.geometry.coordinates[0], a.geometry.coordinates[1]],
         positionIdx: 0,
         lastUpdated: now
       });
-    } else {
-      exists.lastUpdated = now;
-      exists.position = [a.geometry.coordinates[0], a.geometry.coordinates[1]];
     }
   });
 
-  res.json({ message: "✅ invasion data merged and cleaned" });
+  res.json({ message: "✅ invasion data merged and synced" });
 });
 
 app.post('/api/landing', (req, res) => {
