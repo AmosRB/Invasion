@@ -10,10 +10,9 @@ app.use(express.json());
 
 let landings = [];
 let aliens = [];
-let nextLandingId = 1000;
-let nextAlienId = 1;
+let nextLandingCode = 0; // A=0, B=1, ...
+const alienCounters = {}; // landingId -> alien number index
 
-// Clean old data
 setInterval(() => {
   const cutoff = Date.now() - 10000;
   const activeLandingIds = [];
@@ -38,7 +37,8 @@ app.get('/api/invasion', (req, res) => {
       id: landing.id,
       createdAt: landing.createdAt,
       type: "landing",
-      locationName: landing.locationName
+      locationName: landing.locationName,
+      landingCode: landing.landingCode
     }
   }));
 
@@ -52,7 +52,7 @@ app.get('/api/invasion', (req, res) => {
       id: alien.id,
       landingId: alien.landingId,
       type: "alien",
-      alienGlobalId: alien.alienGlobalId
+      alienCode: alien.alienCode
     }
   }));
 
@@ -64,41 +64,54 @@ app.get('/api/invasion', (req, res) => {
 
 app.post('/api/update-invasion', (req, res) => {
   const { features } = req.body;
+  const now = Date.now();
+
   const newLandings = features.filter(f => f.properties?.type === 'landing');
   const newAliens = features.filter(f => f.properties?.type === 'alien');
 
-  const now = Date.now();
-
   newLandings.forEach(l => {
-    const existing = landings.find(existing => existing.id === l.properties.id);
+    const id = l.properties.id;
+    const existing = landings.find(existing => existing.id === id);
     if (existing) {
       existing.lat = l.geometry.coordinates[1];
       existing.lng = l.geometry.coordinates[0];
       existing.locationName = l.properties.locationName || "Unknown";
       existing.lastUpdated = now;
     } else {
+      const landingCode = String.fromCharCode(65 + nextLandingCode); // A, B, C...
+      nextLandingCode += 1;
       landings.push({
-        id: l.properties.id,
+        id,
         lat: l.geometry.coordinates[1],
         lng: l.geometry.coordinates[0],
         locationName: l.properties.locationName || "Unknown",
         createdAt: new Date().toISOString(),
+        landingCode,
         lastUpdated: now
       });
+      alienCounters[id] = 1;
     }
   });
 
   newAliens.forEach(a => {
     const pos = [a.geometry.coordinates[0], a.geometry.coordinates[1]];
-    const existing = aliens.find(existing => existing.id === a.properties.id);
+    const id = a.properties.id;
+    const landingId = a.properties.landingId ?? 0;
+    const existing = aliens.find(existing => existing.id === id);
     if (existing) {
       existing.position = pos;
       existing.lastUpdated = now;
     } else {
+      const landing = landings.find(l => l.id === landingId);
+      const code = landing?.landingCode || "?";
+      const index = alienCounters[landingId] || 1;
+      const alienCode = `${code}${index}`;
+      alienCounters[landingId] = index + 1;
+
       aliens.push({
-        id: a.properties.id,
-        landingId: a.properties.landingId || 0,
-        alienGlobalId: a.properties.alienGlobalId || a.properties.id,
+        id,
+        landingId,
+        alienCode,
         position: pos,
         positionIdx: 0,
         lastUpdated: now
@@ -106,10 +119,9 @@ app.post('/api/update-invasion', (req, res) => {
     }
   });
 
-  res.json({ message: "✅ invasion data updated and kept alive" });
+  res.json({ message: "✅ invasion data updated with codes" });
 });
 
-// ✅ support for old clients requesting route
 app.get('/api/route', async (req, res) => {
   const { fromLat, fromLng, toLat, toLng } = req.query;
   try {
