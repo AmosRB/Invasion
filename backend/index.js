@@ -22,7 +22,8 @@ app.get('/api/invasion', (req, res) => {
     properties: {
       id: landing.id,
       createdAt: landing.createdAt,
-      type: "landing"
+      type: "landing",
+      locationName: landing.locationName // new field
     }
   }));
 
@@ -35,7 +36,8 @@ app.get('/api/invasion', (req, res) => {
     properties: {
       id: alien.id,
       landingId: alien.landingId,
-      type: "alien"
+      type: "alien",
+      alienGlobalId: alien.alienGlobalId // new field
     }
   }));
 
@@ -46,11 +48,12 @@ app.get('/api/invasion', (req, res) => {
 });
 
 app.post('/api/landing', (req, res) => {
-  const { lat, lng } = req.body;
+  const { lat, lng, locationName } = req.body;
   const newLanding = {
     id: nextLandingId++,
     lat,
     lng,
+    locationName, // new field
     createdAt: new Date().toISOString()
   };
   landings.push(newLanding);
@@ -72,6 +75,7 @@ app.post('/api/aliens', async (req, res) => {
       );
       const points = decodePolyline(routeRes.data.routes[0].geometry);
       return {
+        alienGlobalId: nextAlienId++, // new global id
         id: nextAlienId++,
         landingId,
         route: points,
@@ -96,12 +100,14 @@ app.post('/api/update-invasion', (req, res) => {
     id: l.properties.id || nextLandingId++,
     lat: l.geometry.coordinates[1],
     lng: l.geometry.coordinates[0],
+    locationName: l.properties.locationName || "Unknown", // preserving new data field
     createdAt: new Date().toISOString()
   }));
 
   aliens = newAliens.map(a => ({
     id: a.properties.id || nextAlienId++,
     landingId: a.properties.landingId || 0,
+    alienGlobalId: a.properties.alienGlobalId || nextAlienId++, // keeping the global id
     position: [a.geometry.coordinates[0], a.geometry.coordinates[1]],
     positionIdx: 0
   }));
