@@ -12,6 +12,13 @@ let aliens = [];
 let nextLandingId = 1000;
 let nextAlienId = 1;
 
+// 🧼 מנגנון ניקוי כל 5 שניות
+setInterval(() => {
+  const cutoff = Date.now() - 10000; // 10 שניות
+  landings = landings.filter(l => l.lastUpdated && l.lastUpdated > cutoff);
+  aliens = aliens.filter(a => a.lastUpdated && a.lastUpdated > cutoff);
+}, 5000);
+
 app.get('/api/invasion', (req, res) => {
   const landingFeatures = landings.map(landing => ({
     type: "Feature",
@@ -47,20 +54,18 @@ app.get('/api/invasion', (req, res) => {
   });
 });
 
-// ✅ מיזוג נתונים וניקוי ישנים
 app.post('/api/update-invasion', (req, res) => {
   const { features } = req.body;
   const newLandings = features.filter(f => f.properties?.type === 'landing');
   const newAliens = features.filter(f => f.properties?.type === 'alien');
 
+  const now = Date.now();
   const landingIdsFromClient = newLandings.map(l => l.properties.id);
   const alienIdsFromClient = newAliens.map(a => a.properties.id);
 
-  // מחיקה של נתונים שלא הגיעו מהלקוח
   landings = landings.filter(l => landingIdsFromClient.includes(l.id));
   aliens = aliens.filter(a => alienIdsFromClient.includes(a.id));
 
-  // הוספת נחיתות חדשות
   newLandings.forEach(l => {
     const exists = landings.find(existing => existing.id === l.properties.id);
     if (!exists) {
@@ -69,12 +74,14 @@ app.post('/api/update-invasion', (req, res) => {
         lat: l.geometry.coordinates[1],
         lng: l.geometry.coordinates[0],
         locationName: l.properties.locationName || "Unknown",
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        lastUpdated: now
       });
+    } else {
+      exists.lastUpdated = now;
     }
   });
 
-  // הוספת חייזרים חדשים
   newAliens.forEach(a => {
     const exists = aliens.find(existing => existing.id === a.properties.id);
     if (!exists) {
@@ -83,8 +90,12 @@ app.post('/api/update-invasion', (req, res) => {
         landingId: a.properties.landingId || 0,
         alienGlobalId: a.properties.alienGlobalId || a.properties.id,
         position: [a.geometry.coordinates[0], a.geometry.coordinates[1]],
-        positionIdx: 0
+        positionIdx: 0,
+        lastUpdated: now
       });
+    } else {
+      exists.lastUpdated = now;
+      exists.position = [a.geometry.coordinates[0], a.geometry.coordinates[1]];
     }
   });
 
@@ -98,7 +109,8 @@ app.post('/api/landing', (req, res) => {
     lat,
     lng,
     locationName,
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    lastUpdated: Date.now()
   };
   landings.push(newLanding);
   res.status(201).json(newLanding);
@@ -124,7 +136,8 @@ app.post('/api/aliens', async (req, res) => {
         landingId,
         route: points,
         position: points[0],
-        positionIdx: 0
+        positionIdx: 0,
+        lastUpdated: Date.now()
       };
     }));
     aliens.push(...newAliens);
