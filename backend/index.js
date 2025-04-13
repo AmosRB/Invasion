@@ -1,3 +1,4 @@
+
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
@@ -12,6 +13,20 @@ let aliens = [];
 let nextLandingId = 1000;
 let nextAlienId = 1;
 
+// Clean up every 5 seconds
+setInterval(() => {
+  const cutoff = Date.now() - 10000;
+  const activeLandingIds = [];
+
+  landings = landings.filter(l => {
+    const active = l.lastUpdated && l.lastUpdated > cutoff;
+    if (active) activeLandingIds.push(l.id);
+    return active;
+  });
+
+  aliens = aliens.filter(a => activeLandingIds.includes(a.landingId) && a.lastUpdated > cutoff);
+}, 5000);
+
 app.get('/api/invasion', (req, res) => {
   const landingFeatures = landings.map(landing => ({
     type: "Feature",
@@ -22,7 +37,8 @@ app.get('/api/invasion', (req, res) => {
     properties: {
       id: landing.id,
       createdAt: landing.createdAt,
-      type: "landing"
+      type: "landing",
+      locationName: landing.locationName
     }
   }));
 
@@ -35,7 +51,8 @@ app.get('/api/invasion', (req, res) => {
     properties: {
       id: alien.id,
       landingId: alien.landingId,
-      type: "alien"
+      type: "alien",
+      alienGlobalId: alien.alienGlobalId
     }
   }));
 
@@ -45,13 +62,62 @@ app.get('/api/invasion', (req, res) => {
   });
 });
 
+app.post('/api/update-invasion', (req, res) => {
+  const { features } = req.body;
+  const newLandings = features.filter(f => f.properties?.type === 'landing');
+  const newAliens = features.filter(f => f.properties?.type === 'alien');
+
+  const now = Date.now();
+
+  newLandings.forEach(l => {
+    const existing = landings.find(existing => existing.id === l.properties.id);
+    if (existing) {
+      existing.lat = l.geometry.coordinates[1];
+      existing.lng = l.geometry.coordinates[0];
+      existing.locationName = l.properties.locationName || "Unknown";
+      existing.lastUpdated = now;
+    } else {
+      landings.push({
+        id: l.properties.id,
+        lat: l.geometry.coordinates[1],
+        lng: l.geometry.coordinates[0],
+        locationName: l.properties.locationName || "Unknown",
+        createdAt: new Date().toISOString(),
+        lastUpdated: now
+      });
+    }
+  });
+
+  newAliens.forEach(a => {
+    const pos = [a.geometry.coordinates[0], a.geometry.coordinates[1]];
+    const existing = aliens.find(existing => existing.id === a.properties.id);
+    if (existing) {
+      existing.position = pos;
+      existing.lastUpdated = now;
+    } else {
+      aliens.push({
+        id: a.properties.id,
+        landingId: a.properties.landingId || 0,
+        alienGlobalId: a.properties.alienGlobalId || a.properties.id,
+        position: pos,
+        positionIdx: 0,
+        lastUpdated: now
+      });
+    }
+  });
+
+  res.json({ message: "✅ invasion data merged and synced" });
+});
+
 app.post('/api/landing', (req, res) => {
-  const { lat, lng } = req.body;
+  const { lat, lng, locationName } = req.body;
   const newLanding = {
     id: nextLandingId++,
     lat,
     lng,
-    createdAt: new Date().toISOString()
+    locationName,
+    createdAt: new Date().toISOString(),
+    lastUpdated: Date.now()
   };
   landings.push(newLanding);
   res.status(201).json(newLanding);
@@ -72,50 +138,17 @@ app.post('/api/aliens', async (req, res) => {
       );
       const points = decodePolyline(routeRes.data.routes[0].geometry);
       return {
+        alienGlobalId: nextAlienId,
         id: nextAlienId++,
         landingId,
         route: points,
         position: points[0],
-        positionIdx: 0
+        positionIdx: 0,
+        lastUpdated: Date.now()
       };
     }));
     aliens.push(...newAliens);
     res.status(201).json(newAliens);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// גרסה ישנה — עדכון כללי מהלקוח
-app.post('/api/update-invasion', (req, res) => {
-  const { features } = req.body;
-  const newLandings = features.filter(f => f.properties?.type === 'landing');
-  const newAliens = features.filter(f => f.properties?.type === 'alien');
-
-  landings = newLandings.map((l, i) => ({
-    id: l.properties.id || nextLandingId++,
-    lat: l.geometry.coordinates[1],
-    lng: l.geometry.coordinates[0],
-    createdAt: new Date().toISOString()
-  }));
-
-  aliens = newAliens.map(a => ({
-    id: a.properties.id || nextAlienId++,
-    landingId: a.properties.landingId || 0,
-    position: [a.geometry.coordinates[0], a.geometry.coordinates[1]],
-    positionIdx: 0
-  }));
-
-  res.json({ message: "Invasion data updated from client" });
-});
-
-app.get('/api/route', async (req, res) => {
-  const { fromLat, fromLng, toLat, toLng } = req.query;
-  try {
-    const routeRes = await axios.get(
-      `https://router.project-osrm.org/route/v1/driving/${fromLng},${fromLat};${toLng},${toLat}?overview=full&geometries=polyline`
-    );
-    res.json(routeRes.data);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
