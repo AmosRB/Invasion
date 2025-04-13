@@ -13,7 +13,7 @@ let aliens = [];
 let nextLandingId = 1000;
 let nextAlienId = 1;
 
-// Clean up every 5 seconds
+// Clean old data
 setInterval(() => {
   const cutoff = Date.now() - 10000;
   const activeLandingIds = [];
@@ -106,73 +106,21 @@ app.post('/api/update-invasion', (req, res) => {
     }
   });
 
-  res.json({ message: "✅ invasion data merged and synced" });
+  res.json({ message: "✅ invasion data updated and kept alive" });
 });
 
-app.post('/api/landing', (req, res) => {
-  const { lat, lng, locationName } = req.body;
-  const newLanding = {
-    id: nextLandingId++,
-    lat,
-    lng,
-    locationName,
-    createdAt: new Date().toISOString(),
-    lastUpdated: Date.now()
-  };
-  landings.push(newLanding);
-  res.status(201).json(newLanding);
-});
-
-app.post('/api/aliens', async (req, res) => {
-  const { landingId, lat, lng } = req.body;
-  const directions = [0, 45, 90, 135, 180, 225, 270, 315];
+// ✅ support for old clients requesting route
+app.get('/api/route', async (req, res) => {
+  const { fromLat, fromLng, toLat, toLng } = req.query;
   try {
-    const newAliens = await Promise.all(directions.map(async angle => {
-      const rad = angle * Math.PI / 180;
-      const to = [
-        lat + 0.05 * Math.cos(rad),
-        lng + 0.05 * Math.sin(rad)
-      ];
-      const routeRes = await axios.get(
-        `https://router.project-osrm.org/route/v1/driving/${lng},${lat};${to[1]},${to[0]}?overview=full&geometries=polyline`
-      );
-      const points = decodePolyline(routeRes.data.routes[0].geometry);
-      return {
-        alienGlobalId: nextAlienId,
-        id: nextAlienId++,
-        landingId,
-        route: points,
-        position: points[0],
-        positionIdx: 0,
-        lastUpdated: Date.now()
-      };
-    }));
-    aliens.push(...newAliens);
-    res.status(201).json(newAliens);
+    const routeRes = await axios.get(
+      `https://router.project-osrm.org/route/v1/driving/${fromLng},${fromLat};${toLng},${toLat}?overview=full&geometries=polyline`
+    );
+    res.json(routeRes.data);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
-
-function decodePolyline(encoded) {
-  let points = [], index = 0, lat = 0, lng = 0;
-  while (index < encoded.length) {
-    let b, shift = 0, result = 0;
-    do { b = encoded.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; }
-    while (b >= 0x20);
-    const dlat = (result & 1) ? ~(result >> 1) : (result >> 1);
-    lat += dlat;
-
-    shift = 0; result = 0;
-    do { b = encoded.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; }
-    while (b >= 0x20);
-    const dlng = (result & 1) ? ~(result >> 1) : (result >> 1);
-    lng += dlng;
-
-    points.push([lng / 1e5, lat / 1e5]);
-  }
-  return points;
-}
 
 app.listen(PORT, () => {
   console.log(`🛰️ Server running on port ${PORT}`);
