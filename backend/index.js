@@ -69,15 +69,15 @@ app.post('/api/update-invasion', (req, res) => {
   const now = Date.now();
 
   newLandings.forEach(l => {
-    const existing = landings.find(existing => existing.id === l.properties.id);
+    const id = l.properties.id;
+    const existing = landings.find(existing => existing.id === id);
     if (existing) {
       existing.lat = l.geometry.coordinates[1];
       existing.lng = l.geometry.coordinates[0];
       existing.locationName = l.properties.locationName || "Unknown";
       existing.lastUpdated = now;
     } else {
-      const id = Math.max(nextLandingId++, ...landings.map(l => l.id)) + 1;
-      nextLandingId = id + 1;
+      nextLandingId = Math.max(nextLandingId, id + 1);
       landings.push({
         id,
         lat: l.geometry.coordinates[1],
@@ -96,8 +96,8 @@ app.post('/api/update-invasion', (req, res) => {
       existing.position = pos;
       existing.lastUpdated = now;
     } else {
-      const globalId = Math.max(nextAlienId++, ...aliens.map(a => a.alienGlobalId)) + 1;
-      nextAlienId = globalId + 1;
+      const globalId = a.properties.alienGlobalId || Math.max(nextAlienId++, ...aliens.map(a => a.alienGlobalId || 0)) + 1;
+      nextAlienId = Math.max(nextAlienId, globalId + 1);
       aliens.push({
         id: a.properties.id,
         landingId: a.properties.landingId || 0,
@@ -110,6 +110,18 @@ app.post('/api/update-invasion', (req, res) => {
   });
 
   res.json({ message: "✅ invasion data updated and kept alive" });
+});
+
+app.get('/api/route', async (req, res) => {
+  const { fromLat, fromLng, toLat, toLng } = req.query;
+  try {
+    const routeRes = await axios.get(
+      `https://router.project-osrm.org/route/v1/driving/${fromLng},${fromLat};${toLng},${toLat}?overview=full&geometries=polyline`
+    );
+    res.json(routeRes.data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.listen(PORT, () => {
