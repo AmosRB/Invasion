@@ -47,10 +47,9 @@ app.get('/api/invasion', (req, res) => {
   });
 });
 
-// ✅ עדכון ומחיקת נתונים שלא קיימים עוד
+// ✅ מיזוג נתונים וניקוי ישנים
 app.post('/api/update-invasion', (req, res) => {
   const { features } = req.body;
-
   const newLandings = features.filter(f => f.properties?.type === 'landing');
   const newAliens = features.filter(f => f.properties?.type === 'alien');
 
@@ -65,15 +64,13 @@ app.post('/api/update-invasion', (req, res) => {
   newLandings.forEach(l => {
     const exists = landings.find(existing => existing.id === l.properties.id);
     if (!exists) {
-      const newId = l.properties.id || nextLandingId++;
       landings.push({
-        id: newId,
+        id: l.properties.id,
         lat: l.geometry.coordinates[1],
         lng: l.geometry.coordinates[0],
         locationName: l.properties.locationName || "Unknown",
         createdAt: new Date().toISOString()
       });
-      if (newId >= nextLandingId) nextLandingId = newId + 1;
     }
   });
 
@@ -81,15 +78,13 @@ app.post('/api/update-invasion', (req, res) => {
   newAliens.forEach(a => {
     const exists = aliens.find(existing => existing.id === a.properties.id);
     if (!exists) {
-      const newId = a.properties.id || nextAlienId++;
       aliens.push({
-        id: newId,
+        id: a.properties.id,
         landingId: a.properties.landingId || 0,
-        alienGlobalId: a.properties.alienGlobalId || newId,
+        alienGlobalId: a.properties.alienGlobalId || a.properties.id,
         position: [a.geometry.coordinates[0], a.geometry.coordinates[1]],
         positionIdx: 0
       });
-      if (newId >= nextAlienId) nextAlienId = newId + 1;
     }
   });
 
