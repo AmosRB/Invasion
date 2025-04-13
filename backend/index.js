@@ -13,41 +13,34 @@ let nextLandingId = 1000;
 let nextAlienId = 1;
 
 app.get('/api/invasion', (req, res) => {
-  const landingFeatures = landings.map(landing => ({
-    type: "Feature",
-    geometry: {
-      type: "Point",
-      coordinates: [landing.lng, landing.lat]
-    },
-    properties: {
-      id: landing.id,
-      createdAt: landing.createdAt,
-      type: "landing",
-      locationName: landing.locationName
-    }
-  }));
-
-  const alienFeatures = aliens.map(alien => ({
-    type: "Feature",
-    geometry: {
-      type: "Point",
-      coordinates: alien.position,
-    },
-    properties: {
-      id: alien.id,
-      landingId: alien.landingId,
-      type: "alien",
-      alienGlobalId: alien.alienGlobalId
-    }
-  }));
-
   res.json({
     type: "FeatureCollection",
-    features: [...landingFeatures, ...alienFeatures]
+    features: [
+      ...landings.map(landing => ({
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [landing.lng, landing.lat] },
+        properties: {
+          id: landing.id,
+          createdAt: landing.createdAt,
+          type: "landing",
+          locationName: landing.locationName
+        }
+      })),
+      ...aliens.map(alien => ({
+        type: "Feature",
+        geometry: { type: "Point", coordinates: alien.position },
+        properties: {
+          id: alien.id,
+          landingId: alien.landingId,
+          type: "alien",
+          alienGlobalId: alien.alienGlobalId
+        }
+      }))
+    ]
   });
 });
 
-// 🔄 מיזוג נתונים במקום דריסה
+// ✅ הוספת / עדכון נתונים ממכשיר
 app.post('/api/update-invasion', (req, res) => {
   const { features } = req.body;
   const newLandings = features.filter(f => f.properties?.type === 'landing');
@@ -83,9 +76,25 @@ app.post('/api/update-invasion', (req, res) => {
     }
   });
 
-  res.json({ message: "✅ invasion data merged successfully" });
+  res.json({ message: "✅ Invasion data merged successfully" });
 });
 
+// ✅ מחיקת נחיתה וכל החייזרים המשויכים
+app.delete('/api/landing/:id', (req, res) => {
+  const id = parseInt(req.params.id);
+  landings = landings.filter(l => l.id !== id);
+  aliens = aliens.filter(a => a.landingId !== id);
+  res.json({ message: `❌ Landing ${id} and its aliens removed.` });
+});
+
+// ✅ מחיקת חייזר בודד
+app.delete('/api/alien/:id', (req, res) => {
+  const id = parseInt(req.params.id);
+  aliens = aliens.filter(a => a.id !== id);
+  res.json({ message: `❌ Alien ${id} removed.` });
+});
+
+// יצירת נחיתה רגילה
 app.post('/api/landing', (req, res) => {
   const { lat, lng, locationName } = req.body;
   const newLanding = {
@@ -99,6 +108,7 @@ app.post('/api/landing', (req, res) => {
   res.status(201).json(newLanding);
 });
 
+// יצירת חייזרים סביב נקודה
 app.post('/api/aliens', async (req, res) => {
   const { landingId, lat, lng } = req.body;
   const directions = [0, 45, 90, 135, 180, 225, 270, 315];
@@ -125,10 +135,12 @@ app.post('/api/aliens', async (req, res) => {
     aliens.push(...newAliens);
     res.status(201).json(newAliens);
   } catch (err) {
+    console.error("🚨 Error creating aliens:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
+// API לנתיב (OSRM)
 app.get('/api/route', async (req, res) => {
   const { fromLat, fromLng, toLat, toLng } = req.query;
   try {
@@ -137,10 +149,12 @@ app.get('/api/route', async (req, res) => {
     );
     res.json(routeRes.data);
   } catch (err) {
+    console.error("🚨 Error fetching route:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
+// פונקציית פיענוח נתיבים מ־polyline
 function decodePolyline(encoded) {
   let points = [], index = 0, lat = 0, lng = 0;
   while (index < encoded.length) {
