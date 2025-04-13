@@ -13,6 +13,7 @@ let aliens = [];
 let nextLandingId = 1000;
 let nextAlienId = 1;
 
+// Clean old data
 setInterval(() => {
   const cutoff = Date.now() - 10000;
   const activeLandingIds = [];
@@ -69,17 +70,15 @@ app.post('/api/update-invasion', (req, res) => {
   const now = Date.now();
 
   newLandings.forEach(l => {
-    const id = l.properties.id;
-    const existing = landings.find(existing => existing.id === id);
+    const existing = landings.find(existing => existing.id === l.properties.id);
     if (existing) {
       existing.lat = l.geometry.coordinates[1];
       existing.lng = l.geometry.coordinates[0];
       existing.locationName = l.properties.locationName || "Unknown";
-      existing.lastUpdated = now;  // ✅ make sure lastUpdated is set
+      existing.lastUpdated = now;
     } else {
-      nextLandingId = Math.max(nextLandingId, id + 1);
       landings.push({
-        id,
+        id: l.properties.id,
         lat: l.geometry.coordinates[1],
         lng: l.geometry.coordinates[0],
         locationName: l.properties.locationName || "Unknown",
@@ -91,19 +90,15 @@ app.post('/api/update-invasion', (req, res) => {
 
   newAliens.forEach(a => {
     const pos = [a.geometry.coordinates[0], a.geometry.coordinates[1]];
-    const id = a.properties.id;
-    const existing = aliens.find(existing => existing.id === id);
+    const existing = aliens.find(existing => existing.id === a.properties.id);
     if (existing) {
       existing.position = pos;
       existing.lastUpdated = now;
     } else {
-      const globalId = a.properties.alienGlobalId ?? nextAlienId++;
-      nextAlienId = Math.max(nextAlienId, globalId + 1);
-      const landingId = a.properties.landingId ?? 0;
       aliens.push({
-        id,
-        landingId,
-        alienGlobalId: globalId,
+        id: a.properties.id,
+        landingId: a.properties.landingId || 0,
+        alienGlobalId: a.properties.alienGlobalId || a.properties.id,
         position: pos,
         positionIdx: 0,
         lastUpdated: now
@@ -114,6 +109,7 @@ app.post('/api/update-invasion', (req, res) => {
   res.json({ message: "✅ invasion data updated and kept alive" });
 });
 
+// ✅ support for old clients requesting route
 app.get('/api/route', async (req, res) => {
   const { fromLat, fromLng, toLat, toLng } = req.query;
   try {
