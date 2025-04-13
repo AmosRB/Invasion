@@ -13,7 +13,7 @@ let aliens = [];
 let nextLandingId = 1000;
 let nextAlienId = 1;
 
-// Clean up every 5 seconds
+// Clean inactive data
 setInterval(() => {
   const cutoff = Date.now() - 10000;
   const activeLandingIds = [];
@@ -133,19 +133,33 @@ app.post('/api/aliens', async (req, res) => {
         lat + 0.05 * Math.cos(rad),
         lng + 0.05 * Math.sin(rad)
       ];
-      const routeRes = await axios.get(
-        `https://router.project-osrm.org/route/v1/driving/${lng},${lat};${to[1]},${to[0]}?overview=full&geometries=polyline`
-      );
-      const points = decodePolyline(routeRes.data.routes[0].geometry);
-      return {
-        alienGlobalId: nextAlienId,
-        id: nextAlienId++,
-        landingId,
-        route: points,
-        position: points[0],
-        positionIdx: 0,
-        lastUpdated: Date.now()
-      };
+      try {
+        const routeRes = await axios.get(
+          `https://router.project-osrm.org/route/v1/driving/${lng},${lat};${to[1]},${to[0]}?overview=full&geometries=polyline`
+        );
+        const geometry = routeRes?.data?.routes?.[0]?.geometry;
+        const points = geometry ? decodePolyline(geometry) : [[lng, lat]];
+        return {
+          alienGlobalId: nextAlienId,
+          id: nextAlienId++,
+          landingId,
+          route: points,
+          position: points[0],
+          positionIdx: 0,
+          lastUpdated: Date.now()
+        };
+      } catch (err) {
+        console.warn("OSRM fallback used:", err.message);
+        return {
+          alienGlobalId: nextAlienId,
+          id: nextAlienId++,
+          landingId,
+          route: [[lng, lat]],
+          position: [lng, lat],
+          positionIdx: 0,
+          lastUpdated: Date.now()
+        };
+      }
     }));
     aliens.push(...newAliens);
     res.status(201).json(newAliens);
