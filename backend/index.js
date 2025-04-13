@@ -75,7 +75,7 @@ app.post('/api/update-invasion', (req, res) => {
       existing.lat = l.geometry.coordinates[1];
       existing.lng = l.geometry.coordinates[0];
       existing.locationName = l.properties.locationName || "Unknown";
-      existing.lastUpdated = now;
+      existing.lastUpdated = now;  // ✅ make sure lastUpdated is set
     } else {
       nextLandingId = Math.max(nextLandingId, id + 1);
       landings.push({
@@ -91,16 +91,18 @@ app.post('/api/update-invasion', (req, res) => {
 
   newAliens.forEach(a => {
     const pos = [a.geometry.coordinates[0], a.geometry.coordinates[1]];
-    const existing = aliens.find(existing => existing.id === a.properties.id);
+    const id = a.properties.id;
+    const existing = aliens.find(existing => existing.id === id);
     if (existing) {
       existing.position = pos;
       existing.lastUpdated = now;
     } else {
-      const globalId = a.properties.alienGlobalId || Math.max(nextAlienId++, ...aliens.map(a => a.alienGlobalId || 0)) + 1;
+      const globalId = a.properties.alienGlobalId ?? nextAlienId++;
       nextAlienId = Math.max(nextAlienId, globalId + 1);
+      const landingId = a.properties.landingId ?? 0;
       aliens.push({
-        id: a.properties.id,
-        landingId: a.properties.landingId || 0,
+        id,
+        landingId,
         alienGlobalId: globalId,
         position: pos,
         positionIdx: 0,
