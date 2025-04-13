@@ -13,7 +13,6 @@ let aliens = [];
 let nextLandingId = 1000;
 let nextAlienId = 1;
 
-// Clean old data
 setInterval(() => {
   const cutoff = Date.now() - 10000;
   const activeLandingIds = [];
@@ -77,8 +76,10 @@ app.post('/api/update-invasion', (req, res) => {
       existing.locationName = l.properties.locationName || "Unknown";
       existing.lastUpdated = now;
     } else {
+      const id = Math.max(nextLandingId++, ...landings.map(l => l.id)) + 1;
+      nextLandingId = id + 1;
       landings.push({
-        id: l.properties.id,
+        id,
         lat: l.geometry.coordinates[1],
         lng: l.geometry.coordinates[0],
         locationName: l.properties.locationName || "Unknown",
@@ -95,10 +96,12 @@ app.post('/api/update-invasion', (req, res) => {
       existing.position = pos;
       existing.lastUpdated = now;
     } else {
+      const globalId = Math.max(nextAlienId++, ...aliens.map(a => a.alienGlobalId)) + 1;
+      nextAlienId = globalId + 1;
       aliens.push({
         id: a.properties.id,
         landingId: a.properties.landingId || 0,
-        alienGlobalId: a.properties.alienGlobalId || a.properties.id,
+        alienGlobalId: globalId,
         position: pos,
         positionIdx: 0,
         lastUpdated: now
@@ -107,19 +110,6 @@ app.post('/api/update-invasion', (req, res) => {
   });
 
   res.json({ message: "✅ invasion data updated and kept alive" });
-});
-
-// ✅ support for old clients requesting route
-app.get('/api/route', async (req, res) => {
-  const { fromLat, fromLng, toLat, toLng } = req.query;
-  try {
-    const routeRes = await axios.get(
-      `https://router.project-osrm.org/route/v1/driving/${fromLng},${fromLat};${toLng},${toLat}?overview=full&geometries=polyline`
-    );
-    res.json(routeRes.data);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
 });
 
 app.listen(PORT, () => {
