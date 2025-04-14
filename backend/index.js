@@ -10,8 +10,8 @@ app.use(express.json());
 
 let landings = [];
 let aliens = [];
-let nextLandingCode = 0; // A=0, B=1, ...
-const alienCounters = {}; // landingId -> alien number index
+let nextLandingCode = 0;
+const alienCounters = {}; // landingId -> index
 
 setInterval(() => {
   const cutoff = Date.now() - 10000;
@@ -23,7 +23,10 @@ setInterval(() => {
     return active;
   });
 
-  aliens = aliens.filter(a => activeLandingIds.includes(a.landingId) && a.lastUpdated > cutoff);
+  aliens = aliens.filter(a =>
+    (activeLandingIds.includes(a.landingId) && a.lastUpdated > cutoff)
+    || !a.alienCode // ✅ preserve aliens from old versions
+  );
 }, 5000);
 
 app.get('/api/invasion', (req, res) => {
@@ -78,7 +81,7 @@ app.post('/api/update-invasion', (req, res) => {
       existing.locationName = l.properties.locationName || "Unknown";
       existing.lastUpdated = now;
     } else {
-      const landingCode = String.fromCharCode(65 + nextLandingCode); // A, B, C...
+      const landingCode = String.fromCharCode(65 + nextLandingCode);
       nextLandingCode += 1;
       landings.push({
         id,
@@ -105,7 +108,7 @@ app.post('/api/update-invasion', (req, res) => {
       const landing = landings.find(l => l.id === landingId);
       const code = landing?.landingCode || "?";
       const index = alienCounters[landingId] || 1;
-      const alienCode = `${code}${index}`;
+      const alienCode = a.properties.alienCode ?? `${code}${index}`;
       alienCounters[landingId] = index + 1;
 
       aliens.push({
@@ -119,7 +122,7 @@ app.post('/api/update-invasion', (req, res) => {
     }
   });
 
-  res.json({ message: "✅ invasion data updated with codes" });
+  res.json({ message: "✅ invasion data updated (with old version support)" });
 });
 
 app.get('/api/route', async (req, res) => {
