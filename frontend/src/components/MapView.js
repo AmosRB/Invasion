@@ -12,8 +12,8 @@ const ClickHandler = ({ onClick }) => {
   return null;
 };
 
-const alienIcon = (number) => L.divIcon({
-  html: `<div style="font-size:20px; font-weight:bold;">👽 <span style="font-size:14px; color:black;">${number}</span></div>`,
+const alienIcon = (code) => L.divIcon({
+  html: `<div style="font-size:20px; font-weight:bold;">👽 <span style="font-size:14px; color:black;">${code}</span></div>`,
   className: 'alien-icon',
   iconSize: [30, 30],
 });
@@ -40,7 +40,10 @@ export default function MapView({ center, landings, aliens, onMapClick }) {
       {aliens.map((a) => (
         <React.Fragment key={a.id}>
           <Polyline positions={a.route} color="purple" dashArray="3" />
-          <Marker position={a.route[a.positionIdx]} icon={alienIcon(a.id)} />
+          <Marker
+            position={a.route[a.positionIdx]}
+            icon={alienIcon(a.alienCode || a.id)}
+          />
         </React.Fragment>
       ))}
     </MapContainer>

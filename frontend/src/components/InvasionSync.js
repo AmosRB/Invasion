@@ -38,7 +38,7 @@ export default function InvasionSync({ landings, aliens, setLandings, setAliens 
               type: "alien",
               id: a.id,
               landingId: a.landingId,
-              alienGlobalId: a.id
+              alienCode: a.alienCode || null
             }
           }))
         ]
@@ -50,7 +50,7 @@ export default function InvasionSync({ landings, aliens, setLandings, setAliens 
     return () => clearInterval(interval);
   }, [landings, aliens]);
 
-  // קבלת נתונים מהשרת
+  // קבלת נתונים מהשרת כולל alienCode
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
@@ -66,7 +66,8 @@ export default function InvasionSync({ landings, aliens, setLandings, setAliens 
           id: f.properties.id,
           route: [[f.geometry.coordinates[1], f.geometry.coordinates[0]]],
           positionIdx: 0,
-          landingId: f.properties.landingId
+          landingId: f.properties.landingId,
+          alienCode: f.properties.alienCode || null
         }));
 
         setLandings(remoteLandings);
