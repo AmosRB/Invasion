@@ -1,7 +1,7 @@
-
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
+const polyline = require('polyline');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -10,24 +10,64 @@ app.use(express.json());
 
 let landings = [];
 let aliens = [];
-let nextLandingCode = 0;
-const alienCounters = {}; // landingId -> index
+let nextLandingCodeIndex = 0;
 
-setInterval(() => {
-  const cutoff = Date.now() - 10000;
-  const activeLandingIds = [];
+function getNextLandingCode() {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  const first = Math.floor(nextLandingCodeIndex / 26);
+  const second = nextLandingCodeIndex % 26;
+  nextLandingCodeIndex += 1;
+  return (first > 0 ? alphabet[first - 1] : '') + alphabet[second];
+}
 
-  landings = landings.filter(l => {
-    const active = l.lastUpdated && l.lastUpdated > cutoff;
-    if (active) activeLandingIds.push(l.id);
-    return active;
-  });
+app.post('/api/create-landing', async (req, res) => {
+  const { lat, lng, locationName } = req.body;
+  const now = Date.now();
+  const landingId = now;
+  const landingCode = getNextLandingCode();
 
-  aliens = aliens.filter(a =>
-    (activeLandingIds.includes(a.landingId) && a.lastUpdated > cutoff)
-    || !a.alienCode // ✅ preserve aliens from old versions
-  );
-}, 5000);
+  const newLanding = {
+    id: landingId,
+    lat,
+    lng,
+    locationName: locationName || "Unknown",
+    createdAt: new Date().toISOString(),
+    landingCode,
+    lastUpdated: now
+  };
+  landings.push(newLanding);
+
+  const directions = [0, 45, 90, 135, 180, 225, 270, 315];
+  const startId = aliens.length > 0 ? Math.max(...aliens.map(a => a.id)) + 1 : 1;
+
+  const newAliens = await Promise.all(directions.map(async (angle, index) => {
+    const rad = angle * Math.PI / 180;
+    const target = [
+      lat + 0.05 * Math.cos(rad),
+      lng + 0.05 * Math.sin(rad)
+    ];
+    const route = await axios.get(
+      `https://router.project-osrm.org/route/v1/driving/${lng},${lat};${target[1]},${target[0]}?overview=full&geometries=polyline`
+    ).then(r => polyline.decode(r.data.routes[0].geometry).map(([lat, lng]) => [lat, lng]))
+      .catch(() => [[lat, lng]]);
+
+    const alienId = startId + index;
+    const alienCode = `${landingCode}${alienId}`;
+
+    const alien = {
+      id: alienId,
+      landingId,
+      alienCode,
+      position: route[0],
+      positionIdx: 0,
+      lastUpdated: now
+    };
+    aliens.push(alien);
+    return { ...alien, route };
+  }));
+
+  res.json({ landing: newLanding, aliens: newAliens });
+});
 
 app.get('/api/invasion', (req, res) => {
   const landingFeatures = landings.map(landing => ({
@@ -80,19 +120,6 @@ app.post('/api/update-invasion', (req, res) => {
       existing.lng = l.geometry.coordinates[0];
       existing.locationName = l.properties.locationName || "Unknown";
       existing.lastUpdated = now;
-    } else {
-      const landingCode = String.fromCharCode(65 + nextLandingCode);
-      nextLandingCode += 1;
-      landings.push({
-        id,
-        lat: l.geometry.coordinates[1],
-        lng: l.geometry.coordinates[0],
-        locationName: l.properties.locationName || "Unknown",
-        createdAt: new Date().toISOString(),
-        landingCode,
-        lastUpdated: now
-      });
-      alienCounters[id] = 1;
     }
   });
 
@@ -104,37 +131,10 @@ app.post('/api/update-invasion', (req, res) => {
     if (existing) {
       existing.position = pos;
       existing.lastUpdated = now;
-    } else {
-      const landing = landings.find(l => l.id === landingId);
-      const code = landing?.landingCode || "?";
-      const index = alienCounters[landingId] || 1;
-      const alienCode = a.properties.alienCode ?? `${code}${index}`;
-      alienCounters[landingId] = index + 1;
-
-      aliens.push({
-        id,
-        landingId,
-        alienCode,
-        position: pos,
-        positionIdx: 0,
-        lastUpdated: now
-      });
     }
   });
 
-  res.json({ message: "✅ invasion data updated (with old version support)" });
-});
-
-app.get('/api/route', async (req, res) => {
-  const { fromLat, fromLng, toLat, toLng } = req.query;
-  try {
-    const routeRes = await axios.get(
-      `https://router.project-osrm.org/route/v1/driving/${fromLng},${fromLat};${toLng},${toLat}?overview=full&geometries=polyline`
-    );
-    res.json(routeRes.data);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  res.json({ message: "✅ invasion data updated with codes" });
 });
 
 app.listen(PORT, () => {
