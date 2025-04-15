@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import Navbar from './components/Navbar';
 import MapView from './components/MapView';
@@ -37,12 +38,14 @@ export default function App() {
 
     const locationName = await getNearestTownName(latlng.lat, latlng.lng);
     const landingId = Date.now();
+    const landingCode = String.fromCharCode(65 + (landings.length % 26)); // A–Z
 
     const newLanding = {
       id: landingId,
       lat: latlng.lat,
       lng: latlng.lng,
-      name: locationName
+      name: locationName,
+      landingCode
     };
 
     const directions = [0, 45, 90, 135, 180, 225, 270, 315];
@@ -58,7 +61,8 @@ export default function App() {
         id: startId + index,
         route,
         positionIdx: 0,
-        landingId
+        landingId,
+        alienCode: `${landingCode}${startId + index}`
       };
     });
 

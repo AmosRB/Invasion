@@ -12,20 +12,43 @@ const ClickHandler = ({ onClick }) => {
   return null;
 };
 
-const alienIcon = (code) => L.divIcon({
-  html: `<div style="font-size:20px; font-weight:bold;">👽 <span style="font-size:14px; color:black;">${code}</span></div>`,
-  className: 'alien-icon',
-  iconSize: [30, 30],
-});
-
-const landingIcon = (locationName) => L.divIcon({
-  html: `<div style="display:flex; flex-direction:column; align-items:center;">
-    <div style="font-size:24px;">🛸</div>
-    <div style="background-color:black; color:white; padding:2px 6px; border-radius:4px; font-size:12px; margin-top:2px;">${locationName}</div>
-  </div>`,
-  className: 'landing-icon',
-  iconSize: [100, 40],
-});
+const createEmojiIcon = (emoji, label, isLanding = false) =>
+  L.divIcon({
+    html: `
+      <div style="display: flex; flex-direction: column; align-items: center;">
+        ${
+          isLanding
+            ? `<div style="
+                background-color: black;
+                color: white;
+                padding: 1px 4px;
+                border-radius: 4px;
+                font-size: 10px;
+                margin-bottom: 2px;
+                white-space: nowrap;
+              ">${label}</div>`
+            : ''
+        }
+        <div style="font-size: 24px;">${emoji}</div>
+        ${
+          !isLanding
+            ? `<div style="
+                background-color: transparent;
+                color: black;
+                padding: 1px 4px;
+                font-size: 12px;
+                margin-top: -6px;
+                white-space: nowrap;
+              ">${label}</div>`
+            : ''
+        }
+      </div>
+    `,
+    className: 'emoji-icon',
+    iconSize: [30, 42],
+    iconAnchor: [15, 21],
+    popupAnchor: [0, -30],
+  });
 
 export default function MapView({ center, landings, aliens, onMapClick }) {
   return (
@@ -33,19 +56,21 @@ export default function MapView({ center, landings, aliens, onMapClick }) {
       <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
       <ClickHandler onClick={onMapClick} />
 
-      {landings.map((l) => (
-        <Marker key={l.id} position={[l.lat, l.lng]} icon={landingIcon(l.name)} />
-      ))}
+      {[...landings, ...aliens].map((feature, idx) => {
+        const isLanding = feature.name !== undefined;
+        const position = isLanding ? [feature.lat, feature.lng] : feature.route[feature.positionIdx];
+        const label = isLanding
+          ? `${feature.name} (${feature.landingCode || '?'})`
+          : feature.alienCode || feature.id;
 
-      {aliens.map((a) => (
-        <React.Fragment key={a.id}>
-          <Polyline positions={a.route} color="purple" dashArray="3" />
+        return (
           <Marker
-            position={a.route[a.positionIdx]}
-            icon={alienIcon(a.alienCode || a.id)}
+            key={`marker-${idx}`}
+            position={position}
+            icon={createEmojiIcon(isLanding ? '🛸' : '👽', label, isLanding)}
           />
-        </React.Fragment>
-      ))}
+        );
+      })}
     </MapContainer>
   );
 }

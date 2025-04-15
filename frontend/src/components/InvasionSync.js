@@ -23,6 +23,7 @@ export default function InvasionSync({ landings, aliens, setLandings, setAliens 
               type: "landing",
               id: l.id,
               locationName: l.name,
+              landingCode: l.landingCode || null
             }
           })),
           ...aliens.map(a => ({
@@ -50,25 +51,32 @@ export default function InvasionSync({ landings, aliens, setLandings, setAliens 
     return () => clearInterval(interval);
   }, [landings, aliens]);
 
-  // קבלת נתונים מהשרת כולל alienCode
+  // קבלת נתונים מהשרת כולל alienCode ו-landingCode
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
         const res = await axios.get(`${API_BASE}/api/invasion`);
         const features = res.data.features;
-        const remoteLandings = features.filter(f => f.properties?.type === 'landing').map(f => ({
-          id: f.properties.id,
-          lat: f.geometry.coordinates[1],
-          lng: f.geometry.coordinates[0],
-          name: f.properties.locationName || 'Unknown'
-        }));
-        const remoteAliens = features.filter(f => f.properties?.type === 'alien').map(f => ({
-          id: f.properties.id,
-          route: [[f.geometry.coordinates[1], f.geometry.coordinates[0]]],
-          positionIdx: 0,
-          landingId: f.properties.landingId,
-          alienCode: f.properties.alienCode || null
-        }));
+
+        const remoteLandings = features
+          .filter(f => f.properties?.type === 'landing')
+          .map(f => ({
+            id: f.properties.id,
+            lat: f.geometry.coordinates[1],
+            lng: f.geometry.coordinates[0],
+            name: f.properties.locationName || 'Unknown',
+            landingCode: f.properties.landingCode || '?'
+          }));
+
+        const remoteAliens = features
+          .filter(f => f.properties?.type === 'alien')
+          .map(f => ({
+            id: f.properties.id,
+            route: [[f.geometry.coordinates[1], f.geometry.coordinates[0]]],
+            positionIdx: 0,
+            landingId: f.properties.landingId,
+            alienCode: f.properties.alienCode || null
+          }));
 
         setLandings(remoteLandings);
         setAliens(remoteAliens);
