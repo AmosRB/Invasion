@@ -1,142 +1,90 @@
-const express = require('express');
-const cors = require('cors');
-const axios = require('axios');
-const polyline = require('polyline');
-const app = express();
-const PORT = process.env.PORT || 5000;
 
-app.use(cors());
-app.use(express.json());
+import React, { useState } from 'react';
+import Navbar from './components/Navbar';
+import MapView from './components/MapView';
+import AlienManager from './components/AlienManager';
+import InvasionSync from './components/InvasionSync';
+import getRoute from './utils/getRoute';
+import axios from 'axios';
 
-let landings = [];
-let aliens = [];
-let nextLandingCodeIndex = 0;
+const center = [31.5, 34.8];
 
-function getNextLandingCode() {
-  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-  const first = Math.floor(nextLandingCodeIndex / 26);
-  const second = nextLandingCodeIndex % 26;
-  nextLandingCodeIndex += 1;
-  return (first > 0 ? alphabet[first - 1] : '') + alphabet[second];
-}
+const getNearestTownName = async (lat, lng) => {
+  try {
+    const res = await axios.get(
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`
+    );
+    return res.data.address.town || res.data.address.city || res.data.address.village || "Unknown";
+  } catch {
+    return "Unknown";
+  }
+};
 
-app.post('/api/create-landing', async (req, res) => {
-  const { lat, lng, locationName } = req.body;
-  const now = Date.now();
-  const landingId = now;
-  const landingCode = getNextLandingCode();
+export default function App() {
+  const [landings, setLandings] = useState([]);
+  const [aliens, setAliens] = useState([]);
+  const [createMode, setCreateMode] = useState(false);
+  const [cursorStyle, setCursorStyle] = useState("default");
 
-  const newLanding = {
-    id: landingId,
-    lat,
-    lng,
-    locationName: locationName || "Unknown",
-    createdAt: new Date().toISOString(),
-    landingCode,
-    lastUpdated: now
+  const getNextAlienId = () => {
+    const ids = aliens.map(a => a.id);
+    return ids.length > 0 ? Math.max(...ids) + 1 : 1;
   };
-  landings.push(newLanding);
 
-  const directions = [0, 45, 90, 135, 180, 225, 270, 315];
-  const startId = aliens.length > 0 ? Math.max(...aliens.map(a => a.id)) + 1 : 1;
+  const handleMapClick = async (latlng) => {
+    if (!createMode) return;
+    setCreateMode(false);
+    setCursorStyle("default");
 
-  const newAliens = await Promise.all(directions.map(async (angle, index) => {
-    const rad = angle * Math.PI / 180;
-    const target = [
-      lat + 0.05 * Math.cos(rad),
-      lng + 0.05 * Math.sin(rad)
-    ];
-    const route = await axios.get(
-      `https://router.project-osrm.org/route/v1/driving/${lng},${lat};${target[1]},${target[0]}?overview=full&geometries=polyline`
-    ).then(r => polyline.decode(r.data.routes[0].geometry).map(([lat, lng]) => [lat, lng]))
-      .catch(() => [[lat, lng]]);
+    const locationName = await getNearestTownName(latlng.lat, latlng.lng);
+    const landingId = Date.now();
+    const landingCode = String.fromCharCode(65 + (landings.length % 26)); // A–Z
 
-    const alienId = startId + index;
-    const alienCode = `${landingCode}${alienId}`;
-
-    const alien = {
-      id: alienId,
-      landingId,
-      alienCode,
-      position: route[0],
-      positionIdx: 0,
-      lastUpdated: now
+    const newLanding = {
+      id: landingId,
+      lat: latlng.lat,
+      lng: latlng.lng,
+      name: locationName,
+      landingCode
     };
-    aliens.push(alien);
-    return { ...alien, route };
-  }));
 
-  res.json({ landing: newLanding, aliens: newAliens });
-});
+    const directions = [0, 45, 90, 135, 180, 225, 270, 315];
+    const startId = getNextAlienId();
+    const alienPromises = directions.map(async (angle, index) => {
+      const rad = angle * Math.PI / 180;
+      const target = [
+        latlng.lat + 0.05 * Math.cos(rad),
+        latlng.lng + 0.05 * Math.sin(rad)
+      ];
+      const route = await getRoute([latlng.lat, latlng.lng], target);
+      return {
+        id: startId + index,
+        route,
+        positionIdx: 0,
+        landingId,
+        alienCode: `${landingCode}${startId + index}`
+      };
+    });
 
-app.get('/api/invasion', (req, res) => {
-  const landingFeatures = landings.map(landing => ({
-    type: "Feature",
-    geometry: {
-      type: "Point",
-      coordinates: [landing.lng, landing.lat]
-    },
-    properties: {
-      id: landing.id,
-      createdAt: landing.createdAt,
-      type: "landing",
-      locationName: landing.locationName,
-      landingCode: landing.landingCode
-    }
-  }));
+    const newAliens = await Promise.all(alienPromises);
+    setLandings(prev => [...prev, newLanding]);
+    setAliens(prev => [...prev, ...newAliens]);
+  };
 
-  const alienFeatures = aliens.map(alien => ({
-    type: "Feature",
-    geometry: {
-      type: "Point",
-      coordinates: alien.position,
-    },
-    properties: {
-      id: alien.id,
-      landingId: alien.landingId,
-      type: "alien",
-      alienCode: alien.alienCode
-    }
-  }));
-
-  res.json({
-    type: "FeatureCollection",
-    features: [...landingFeatures, ...alienFeatures]
-  });
-});
-
-app.post('/api/update-invasion', (req, res) => {
-  const { features } = req.body;
-  const now = Date.now();
-
-  const newLandings = features.filter(f => f.properties?.type === 'landing');
-  const newAliens = features.filter(f => f.properties?.type === 'alien');
-
-  newLandings.forEach(l => {
-    const id = l.properties.id;
-    const existing = landings.find(existing => existing.id === id);
-    if (existing) {
-      existing.lat = l.geometry.coordinates[1];
-      existing.lng = l.geometry.coordinates[0];
-      existing.locationName = l.properties.locationName || "Unknown";
-      existing.lastUpdated = now;
-    }
-  });
-
-  newAliens.forEach(a => {
-    const pos = [a.geometry.coordinates[0], a.geometry.coordinates[1]];
-    const id = a.properties.id;
-    const landingId = a.properties.landingId ?? 0;
-    const existing = aliens.find(existing => existing.id === id);
-    if (existing) {
-      existing.position = pos;
-      existing.lastUpdated = now;
-    }
-  });
-
-  res.json({ message: "✅ invasion data updated with codes" });
-});
-
-app.listen(PORT, () => {
-  console.log(`🛰️ Server running on port ${PORT}`);
-});
+  return (
+    <div style={{ cursor: cursorStyle }}>
+      <Navbar onActivateCreate={() => {
+        setCreateMode(true);
+        setCursorStyle("crosshair");
+      }} />
+      <AlienManager aliens={aliens} setAliens={setAliens} />
+      <InvasionSync landings={landings} aliens={aliens} />
+      <MapView
+        center={center}
+        landings={landings}
+        aliens={aliens}
+        onMapClick={handleMapClick}
+      />
+    </div>
+  );
+}
