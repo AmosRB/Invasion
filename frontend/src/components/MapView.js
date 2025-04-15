@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { MapContainer, TileLayer, Marker, Polyline, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
@@ -55,6 +54,18 @@ export default function MapView({ center, landings, aliens, onMapClick }) {
     <MapContainer center={center} zoom={10} style={{ height: 'calc(100vh - 50px)' }}>
       <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
       <ClickHandler onClick={onMapClick} />
+
+      {/* ✅ הצגת הנתיבים של החייזרים */}
+      {aliens.map((alien, idx) => (
+        alien.route?.length > 0 ? (
+          <Polyline
+            key={`route-${idx}`}
+            positions={alien.route}
+            color="purple"
+            weight={2}
+          />
+        ) : null
+      ))}
 
       {[...landings, ...aliens].map((feature, idx) => {
         const isLanding = feature.name !== undefined;
