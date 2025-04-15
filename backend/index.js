@@ -47,7 +47,10 @@ app.post('/api/create-landing', async (req, res) => {
     ];
     try {
       const response = await axios.get(`https://router.project-osrm.org/route/v1/driving/${lng},${lat};${to[1]},${to[0]}?overview=full&geometries=geojson`);
-      const route = response.data.routes[0].geometry.coordinates.map(([lng, lat]) => [lat, lng]);
+      const coords = response.data?.routes?.[0]?.geometry?.coordinates || [];
+      if (coords.length === 0) return null;
+
+      const route = coords.map(([lng, lat]) => [lat, lng]);
 
       const id = aliens.length > 0 ? Math.max(...aliens.map(a => a.id)) + 1 : 1;
       const alienCode = `${landingCode}${id}`;
@@ -57,17 +60,22 @@ app.post('/api/create-landing', async (req, res) => {
         landingId,
         alienCode,
         position: route[0],
+        route,
         positionIdx: 0,
         lastUpdated: now
       };
       aliens.push(alien);
-      return { ...alien, route };
-    } catch {
+      return alien;
+    } catch (err) {
+      console.error('Failed to fetch route:', err.message);
       return null;
     }
   }));
 
-  res.json({ landing: newLanding, aliens: newAliens.filter(a => a !== null) });
+  res.json({
+    landing: newLanding,
+    aliens: newAliens.filter(Boolean)
+  });
 });
 
 setInterval(() => {
