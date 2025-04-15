@@ -51,7 +51,6 @@ app.post('/api/create-landing', async (req, res) => {
       if (coords.length === 0) return null;
 
       const route = coords.map(([lng, lat]) => [lat, lng]);
-
       const id = aliens.length > 0 ? Math.max(...aliens.map(a => a.id)) + 1 : 1;
       const alienCode = `${landingCode}${id}`;
 
@@ -117,7 +116,8 @@ app.get('/api/invasion', (req, res) => {
       id: alien.id,
       landingId: alien.landingId,
       type: "alien",
-      alienCode: alien.alienCode
+      alienCode: alien.alienCode,
+      route: alien.route // ⬅️ route מוחזר ללקוח
     }
   }));
 
@@ -177,6 +177,7 @@ app.post('/api/update-invasion', (req, res) => {
         landingId,
         alienCode,
         position: pos,
+        route: [pos],
         positionIdx: 0,
         lastUpdated: now
       });
