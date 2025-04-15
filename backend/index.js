@@ -1,4 +1,3 @@
-
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
@@ -10,8 +9,66 @@ app.use(express.json());
 
 let landings = [];
 let aliens = [];
-let nextLandingCode = 0;
-const alienCounters = {}; // landingId -> index
+let nextLandingCode = 0; // A=0, B=1, ...
+const alienCounters = {}; // landingId -> alien number index
+
+function getNextLandingCode() {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  const first = Math.floor(nextLandingCode / 26);
+  const second = nextLandingCode % 26;
+  nextLandingCode += 1;
+  return (first > 0 ? alphabet[first - 1] : '') + alphabet[second];
+}
+
+app.post('/api/create-landing', async (req, res) => {
+  const { lat, lng, locationName } = req.body;
+  const now = Date.now();
+  const landingId = now;
+  const landingCode = getNextLandingCode();
+
+  const newLanding = {
+    id: landingId,
+    lat,
+    lng,
+    locationName: locationName || "Unknown",
+    createdAt: new Date().toISOString(),
+    landingCode,
+    lastUpdated: now
+  };
+  landings.push(newLanding);
+  alienCounters[landingId] = 1;
+
+  const directions = [0, 45, 90, 135, 180, 225, 270, 315];
+  const newAliens = await Promise.all(directions.map(async (angle, i) => {
+    const rad = angle * Math.PI / 180;
+    const to = [
+      lat + 0.05 * Math.cos(rad),
+      lng + 0.05 * Math.sin(rad)
+    ];
+    try {
+      const response = await axios.get(`https://router.project-osrm.org/route/v1/driving/${lng},${lat};${to[1]},${to[0]}?overview=full&geometries=geojson`);
+      const route = response.data.routes[0].geometry.coordinates.map(([lng, lat]) => [lat, lng]);
+
+      const id = aliens.length > 0 ? Math.max(...aliens.map(a => a.id)) + 1 : 1;
+      const alienCode = `${landingCode}${id}`;
+
+      const alien = {
+        id,
+        landingId,
+        alienCode,
+        position: route[0],
+        positionIdx: 0,
+        lastUpdated: now
+      };
+      aliens.push(alien);
+      return { ...alien, route };
+    } catch {
+      return null;
+    }
+  }));
+
+  res.json({ landing: newLanding, aliens: newAliens.filter(a => a !== null) });
+});
 
 setInterval(() => {
   const cutoff = Date.now() - 10000;
@@ -23,10 +80,7 @@ setInterval(() => {
     return active;
   });
 
-  aliens = aliens.filter(a =>
-    (activeLandingIds.includes(a.landingId) && a.lastUpdated > cutoff)
-    || !a.alienCode // ✅ preserve aliens from old versions
-  );
+  aliens = aliens.filter(a => activeLandingIds.includes(a.landingId) && a.lastUpdated > cutoff);
 }, 5000);
 
 app.get('/api/invasion', (req, res) => {
@@ -81,8 +135,7 @@ app.post('/api/update-invasion', (req, res) => {
       existing.locationName = l.properties.locationName || "Unknown";
       existing.lastUpdated = now;
     } else {
-      const landingCode = String.fromCharCode(65 + nextLandingCode);
-      nextLandingCode += 1;
+      const landingCode = getNextLandingCode();
       landings.push({
         id,
         lat: l.geometry.coordinates[1],
@@ -108,7 +161,7 @@ app.post('/api/update-invasion', (req, res) => {
       const landing = landings.find(l => l.id === landingId);
       const code = landing?.landingCode || "?";
       const index = alienCounters[landingId] || 1;
-      const alienCode = a.properties.alienCode ?? `${code}${index}`;
+      const alienCode = `${code}${index}`;
       alienCounters[landingId] = index + 1;
 
       aliens.push({
@@ -122,7 +175,7 @@ app.post('/api/update-invasion', (req, res) => {
     }
   });
 
-  res.json({ message: "✅ invasion data updated (with old version support)" });
+  res.json({ message: "✅ invasion data updated with codes" });
 });
 
 app.get('/api/route', async (req, res) => {
