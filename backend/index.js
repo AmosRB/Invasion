@@ -22,7 +22,6 @@ app.use(express.json());
 
 let landings = [];
 let aliens = [];
-let nextLandingCode = 0;
 const alienCounters = {}; // landingId -> index
 
 setInterval(() => {
