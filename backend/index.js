@@ -5,6 +5,18 @@ const axios = require('axios');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+let nextLandingCode = 0;
+
+// 🆕 פונקציה ליצירת קוד נחיתה ייחודי (A, B, ..., Z, AA, AB, ...)
+function generateLandingCode(index) {
+  let code = '';
+  while (index >= 0) {
+    code = String.fromCharCode(65 + (index % 26)) + code;
+    index = Math.floor(index / 26) - 1;
+  }
+  return code;
+}
+
 app.use(cors());
 app.use(express.json());
 
@@ -81,7 +93,7 @@ app.post('/api/update-invasion', (req, res) => {
       existing.locationName = l.properties.locationName || "Unknown";
       existing.lastUpdated = now;
     } else {
-      const landingCode = String.fromCharCode(65 + nextLandingCode);
+      const landingCode = generateLandingCode(nextLandingCode);
       nextLandingCode += 1;
       landings.push({
         id,
@@ -108,7 +120,7 @@ app.post('/api/update-invasion', (req, res) => {
       const landing = landings.find(l => l.id === landingId);
       const code = landing?.landingCode || "?";
       const index = alienCounters[landingId] || 1;
-      const alienCode = a.properties.alienCode ?? `${code}${index}`;
+      const alienCode = `${code}${index}`;
       alienCounters[landingId] = index + 1;
 
       aliens.push({
