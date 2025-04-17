@@ -73,7 +73,7 @@ app.post('/api/update-invasion', (req, res) => {
   const newAliens = features.filter(f => f.properties?.type === 'alien');
 
   newLandings.forEach(l => {
-    const id = Date.now() + Math.floor(Math.random() * 1000);
+    const id = l.properties.id;
     const existing = landings.find(existing => existing.id === id);
     if (existing) {
       existing.lat = l.geometry.coordinates[1];
@@ -98,7 +98,7 @@ app.post('/api/update-invasion', (req, res) => {
 
   newAliens.forEach(a => {
     const pos = [a.geometry.coordinates[0], a.geometry.coordinates[1]];
-    const id = Date.now() + Math.floor(Math.random() * 1000);
+    const id = a.properties.id;
     const landingId = a.properties.landingId ?? 0;
     const existing = aliens.find(existing => existing.id === id);
     if (existing) {
@@ -108,7 +108,7 @@ app.post('/api/update-invasion', (req, res) => {
       const landing = landings.find(l => l.id === landingId);
       const code = landing?.landingCode || "?";
       const index = alienCounters[landingId] || 1;
-      const alienCode = `${code}${index}`;
+      const alienCode = a.properties.alienCode ?? `${code}${index}`;
       alienCounters[landingId] = index + 1;
 
       aliens.push({
