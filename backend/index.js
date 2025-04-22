@@ -1,4 +1,3 @@
-
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
@@ -10,9 +9,33 @@ app.use(express.json());
 
 let landings = [];
 let aliens = [];
-let nextLandingCode = 0;
 const alienCounters = {}; // landingId -> index
 
+// 🧠 פונקציה: קוד אות הבא - כולל AA, AB וכו'
+function getNextLandingCode(existingCodes) {
+  const toNumber = code => {
+    return code.split('').reduce((acc, char) => acc * 26 + (char.charCodeAt(0) - 65 + 1), 0);
+  };
+
+  const toCode = num => {
+    let code = '';
+    while (num > 0) {
+      num--;
+      code = String.fromCharCode((num % 26) + 65) + code;
+      num = Math.floor(num / 26);
+    }
+    return code;
+  };
+
+  const validCodes = existingCodes.filter(c => /^[A-Z]+$/.test(c));
+  if (validCodes.length === 0) return 'A';
+
+  const maxCode = validCodes.reduce((a, b) => toNumber(a) > toNumber(b) ? a : b);
+  const nextNum = toNumber(maxCode) + 1;
+  return toCode(nextNum);
+}
+
+// 🔄 סינון ישויות לא פעילות
 setInterval(() => {
   const cutoff = Date.now() - 10000;
   const activeLandingIds = [];
@@ -25,10 +48,11 @@ setInterval(() => {
 
   aliens = aliens.filter(a =>
     (activeLandingIds.includes(a.landingId) && a.lastUpdated > cutoff)
-    || !a.alienCode // ✅ preserve aliens from old versions
+    || !a.alienCode // ✅ לשמירת תאימות אחורה
   );
 }, 5000);
 
+// 🛰️ שליפת מצב נוכחי
 app.get('/api/invasion', (req, res) => {
   const landingFeatures = landings.map(landing => ({
     type: "Feature",
@@ -65,6 +89,7 @@ app.get('/api/invasion', (req, res) => {
   });
 });
 
+// 📥 קבלת עדכונים מהלקוח
 app.post('/api/update-invasion', (req, res) => {
   const { features } = req.body;
   const now = Date.now();
@@ -81,8 +106,8 @@ app.post('/api/update-invasion', (req, res) => {
       existing.locationName = l.properties.locationName || "Unknown";
       existing.lastUpdated = now;
     } else {
-      const landingCode = String.fromCharCode(65 + nextLandingCode);
-      nextLandingCode += 1;
+      const existingCodes = landings.map(l => l.landingCode);
+      const landingCode = getNextLandingCode(existingCodes);
       landings.push({
         id,
         lat: l.geometry.coordinates[1],
@@ -96,36 +121,36 @@ app.post('/api/update-invasion', (req, res) => {
     }
   });
 
-newAliens.forEach(a => {
-  const pos = [a.geometry.coordinates[0], a.geometry.coordinates[1]];
-  const id = a.properties.id;
-  const landingId = a.properties.landingId ?? 0;
-  const existing = aliens.find(existing => existing.id === id);
-  if (existing) {
-    existing.position = pos;
-    existing.lastUpdated = now;
-  } else {
-    const landing = landings.find(l => l.id === landingId);
-    const code = landing?.landingCode || "?";
-    const index = alienCounters[landingId] || 1;
-    const alienCode = `${code}${index}`; // 🟢 יוצרים תמיד קוד חדש לפי אות + מספר
-    alienCounters[landingId] = index + 1;
+  newAliens.forEach(a => {
+    const pos = [a.geometry.coordinates[0], a.geometry.coordinates[1]];
+    const id = a.properties.id;
+    const landingId = a.properties.landingId ?? 0;
+    const existing = aliens.find(existing => existing.id === id);
+    if (existing) {
+      existing.position = pos;
+      existing.lastUpdated = now;
+    } else {
+      const landing = landings.find(l => l.id === landingId);
+      const code = landing?.landingCode || "?";
+      const index = alienCounters[landingId] || 1;
+      const alienCode = `${code}${index}`;
+      alienCounters[landingId] = index + 1;
 
-    aliens.push({
-      id,
-      landingId,
-      alienCode,
-      position: pos,
-      positionIdx: 0,
-      lastUpdated: now
-    });
-  }
+      aliens.push({
+        id,
+        landingId,
+        alienCode,
+        position: pos,
+        positionIdx: 0,
+        lastUpdated: now
+      });
+    }
+  });
+
+  res.json({ message: "✅ invasion data updated (with server-based codes)" });
 });
 
-
-  res.json({ message: "✅ invasion data updated (with old version support)" });
-});
-
+// 🧭 קבלת מסלול מ־OSRM
 app.get('/api/route', async (req, res) => {
   const { fromLat, fromLng, toLat, toLng } = req.query;
   try {
