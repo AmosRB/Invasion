@@ -96,31 +96,32 @@ app.post('/api/update-invasion', (req, res) => {
     }
   });
 
-  newAliens.forEach(a => {
-    const pos = [a.geometry.coordinates[0], a.geometry.coordinates[1]];
-    const id = a.properties.id;
-    const landingId = a.properties.landingId ?? 0;
-    const existing = aliens.find(existing => existing.id === id);
-    if (existing) {
-      existing.position = pos;
-      existing.lastUpdated = now;
-    } else {
-      const landing = landings.find(l => l.id === landingId);
-      const code = landing?.landingCode || "?";
-      const index = alienCounters[landingId] || 1;
-      const alienCode = a.properties.alienCode ?? `${code}${index}`;
-      alienCounters[landingId] = index + 1;
+newAliens.forEach(a => {
+  const pos = [a.geometry.coordinates[0], a.geometry.coordinates[1]];
+  const id = a.properties.id;
+  const landingId = a.properties.landingId ?? 0;
+  const existing = aliens.find(existing => existing.id === id);
+  if (existing) {
+    existing.position = pos;
+    existing.lastUpdated = now;
+  } else {
+    const landing = landings.find(l => l.id === landingId);
+    const code = landing?.landingCode || "?";
+    const index = alienCounters[landingId] || 1;
+    const alienCode = `${code}${index}`; // 🟢 יוצרים תמיד קוד חדש לפי אות + מספר
+    alienCounters[landingId] = index + 1;
 
-      aliens.push({
-        id,
-        landingId,
-        alienCode,
-        position: pos,
-        positionIdx: 0,
-        lastUpdated: now
-      });
-    }
-  });
+    aliens.push({
+      id,
+      landingId,
+      alienCode,
+      position: pos,
+      positionIdx: 0,
+      lastUpdated: now
+    });
+  }
+});
+
 
   res.json({ message: "✅ invasion data updated (with old version support)" });
 });
